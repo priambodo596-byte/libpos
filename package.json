@@ -1,0 +1,13 @@
+{
+  "name": "convetlib-monorepo",
+  "private": true,
+  "description": "Enterprise Document Editor Library/SDK (library only, not a SaaS app)",
+  "packageManager": "pnpm@12.14.0",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/*\" build",
+    "test": "pnpm -r --filter \"./packages/*\" test",
+    "typecheck": "pnpm -r --filter \"./packages/*\" typecheck",
+    "verify": "pnpm build && pnpm typecheck && pnpm test"
+  }
+}

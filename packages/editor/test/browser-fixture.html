@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Convetlib browser integration fixture</title></head>
+<body>
+  <main>
+    <h1 id="editor-label">Document editor test</h1>
+    <div id="editor" aria-labelledby="editor-label"></div>
+    <output id="status" aria-live="polite"></output>
+  </main>
+  <script type="module">
+    import { createDocument, createEditor, createNodeFactory, createSequentialIdGenerator } from "/packages/core/src/index.ts";
+    import { bindBrowserEditor, getTextBlocks, registerEditingCommands, setSelection } from "/packages/editor/src/index.ts";
+    const ids = createSequentialIdGenerator("browser");
+    const factory = createNodeFactory(ids);
+    const editor = await createEditor({ document: createDocument({ ids, content: [factory.paragraph("Hello world"), factory.paragraph("Second line")] }), ids });
+    registerEditingCommands(editor, { ids });
+    const root = document.querySelector("#editor");
+    const findBlock = id => {
+      const visit = nodes => { for (const node of nodes ?? []) { if (node.id === id) return node; const found = visit((node.content ?? []).filter(child => typeof child.id === "string")); if (found) return found; } };
+      for (const section of editor.state.document.sections) { const found = visit([...section.content, ...(section.header ?? []), ...(section.footer ?? [])]); if (found) return found; }
+    };
+    const render = () => {
+      root.replaceChildren();
+      for (const info of getTextBlocks(editor.state)) {
+        const el = document.createElement(info.type === "heading" ? "h1" : "p");
+        el.dataset.blockId = info.id;
+        const block = findBlock(info.id);
+        for (const inline of block?.content ?? []) {
+          if (inline.type === "text") el.append(document.createTextNode(inline.text));
+          else {
+            const atom = document.createElement("span");
+            atom.dataset.inlineAtom = "true";
+            atom.contentEditable = "false";
+            atom.textContent = "\uFFFC";
+            el.append(atom);
+          }
+        }
+        root.append(el);
+      }
+    };
+    render();
+    const binding = bindBrowserEditor(editor, { root, render, onError: e => { document.querySelector("#status").textContent = String(e); } });
+    window.editorHarness = {
+      editor, root, binding,
+      getText: () => getTextBlocks(editor.state).map(b => b.text),
+      ids: () => getTextBlocks(editor.state).map(b => b.id),
+      select(blockIndex, start, end = start) {
+        const el = root.querySelectorAll("[data-block-id]")[blockIndex];
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        const text = walker.nextNode();
+        const range = document.createRange();
+        if (text) { range.setStart(text, start); range.setEnd(text, end); }
+        else { range.setStart(el, 0); range.setEnd(el, 0); }
+        const selection = document.getSelection();
+        selection.removeAllRanges(); selection.addRange(range);
+        document.dispatchEvent(new Event("selectionchange"));
+      },
+      modelSelection: () => editor.state.selection,
+      addAtomBlock() {
+        const section = editor.state.document.sections[0];
+        const node = factory.paragraph([factory.text("Atom"), factory.placeholder("inline"), factory.text("Tail")]);
+        const result = editor.dispatch({ id: ids(), baseVersion: editor.state.version, ops: [{ type: "insert_block", parent: { kind: "section", id: section.id, slot: "content" }, index: section.content.length, node }], meta: { origin: "test.addAtomBlock", timestamp: new Date().toISOString() } });
+        if (!result.ok) throw result.error;
+        return node.id;
+      },
+      selectAtomTailStart(id) {
+        const el = root.querySelector(`[data-block-id="${id}"]`);
+        const atom = el.querySelector("[data-inline-atom]");
+        const tail = atom.nextSibling;
+        const selection = document.getSelection();
+        selection.setBaseAndExtent(tail, 0, tail, 0);
+        document.dispatchEvent(new Event("selectionchange"));
+      },
+      dispose: async () => { binding.destroy(); await editor.destroy(); }
+    };
+  </script>
+</body>
+</html>
