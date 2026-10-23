@@ -60,21 +60,69 @@ export function cutSelection(editor: Editor): ClipboardPayload | undefined {
   return editor.commands.execute("text.deleteBackward").ok?payload:undefined;
 }
 export function pastePlainText(editor: Editor,text: string): boolean { return typeof text==="string"&&editor.commands.execute("text.insert",{text}).ok; }
-export function pasteClipboardPayload(editor: Editor,payload: ClipboardPayload): boolean {
-  const blocks=payload.blocks?.length?payload.blocks:payload.runs?.length?[{type:"paragraph" as const,runs:payload.runs}]:undefined;
-  if(!blocks?.length)return pastePlainText(editor,payload.text);
-  const state=editor.state,s=state.selection;if(!s||s.anchor.blockId!==s.head.blockId)return pastePlainText(editor,payload.text);
-  const b=findBlock(state,s.anchor.blockId),loc=locateBlock(state,s.anchor.blockId);if(!b||!loc||!isTextBlock(b))return false;
-  const from=Math.min(s.anchor.offset,s.head.offset),to=Math.max(s.anchor.offset,s.head.offset),parent=loc.chain.length===1?{kind:"section" as const,id:state.document.sections[loc.sectionIndex]!.id,slot:loc.slot}:{kind:"node" as const,id:loc.chain[loc.chain.length-2]!.id};
-  const list=loc.lists[loc.lists.length-1]!,index=list.findIndex(n=>n.id===b.id);if(index<0)return false;
-  const ops:Transaction["ops"][number][]=[];if(to>from)ops.push({type:"delete_text",blockId:b.id,from,to});
-  if(blocks.length===1){let offset=from;for(const r of blocks[0]!.runs){if(!r.text)continue;ops.push({type:"insert_text",at:{blockId:b.id,offset},text:r.text,...(r.marks.length?{marks:r.marks}:{})});offset+=r.text.length;}const p={blockId:b.id,offset};return editor.dispatch({id:defaultIdGenerator(),baseVersion:state.version,ops,selection:{anchor:p,head:p},meta:{origin:"clipboard.pasteRich",timestamp:new Date().toISOString()}}).ok;}
-  const tailId=defaultIdGenerator();ops.push({type:"split_block",id:b.id,offset:from,newId:tailId});const lastFragment=blocks[blocks.length-1]!;ops.push({type:"set_node_type",id:tailId,nodeType:lastFragment.type,attrs:lastFragment.attrs??{}});let firstOffset=from;
-  for(const r of blocks[0]!.runs){if(r.text){ops.push({type:"insert_text",at:{blockId:b.id,offset:firstOffset},text:r.text,...(r.marks.length?{marks:r.marks}:{})});firstOffset+=r.text.length;}}
-  let insertIndex=index+1;
-  for(const fragment of blocks.slice(1,-1)){const node:BlockNode={type:fragment.type,id:defaultIdGenerator(),...(fragment.attrs?{attrs:fragment.attrs}:{}),content:fragment.runs.filter(r=>r.text).map(r=>({type:"text",text:r.text,...(r.marks.length?{marks:r.marks}:{})}))};ops.push({type:"insert_block",parent,index:insertIndex++,node});}
-  let lastOffset=0;for(const r of blocks[blocks.length-1]!.runs){if(r.text){ops.push({type:"insert_text",at:{blockId:tailId,offset:lastOffset},text:r.text,...(r.marks.length?{marks:r.marks}:{})});lastOffset+=r.text.length;}}
-  const p={blockId:tailId,offset:lastOffset};return editor.dispatch({id:defaultIdGenerator(),baseVersion:state.version,ops,selection:{anchor:p,head:p},meta:{origin:"clipboard.pasteRich",timestamp:new Date().toISOString()}}).ok;
+export function pasteClipboardPayload(editor: Editor, payload: ClipboardPayload): boolean {
+  const blocks = payload.blocks?.length ? payload.blocks : payload.runs?.length ? [{ type: "paragraph" as const, runs: payload.runs }] : undefined;
+  if (!blocks?.length) return pastePlainText(editor, payload.text);
+  const state = editor.state, selection = state.selection;
+  if (!selection) return false;
+
+  const spansBlocks = selection.anchor.blockId !== selection.head.blockId;
+  const plan = spansBlocks ? planCrossBlockEdit(state, { ids: defaultIdGenerator }) : undefined;
+  // Preserve structural safety: rich replacement across blocks is supported only when the
+  // planner can produce a single surviving text block to split around the pasted fragment.
+  if (spansBlocks && !plan?.joined) return pastePlainText(editor, payload.text);
+
+  const targetId = plan?.caret.blockId ?? selection.anchor.blockId;
+  const target = findBlock(state, targetId), location = locateBlock(state, targetId);
+  if (!target || !location || !isTextBlock(target)) return false;
+  const from = plan?.caret.offset ?? Math.min(selection.anchor.offset, selection.head.offset);
+  const to = Math.max(selection.anchor.offset, selection.head.offset);
+  const parent = location.chain.length === 1
+    ? { kind: "section" as const, id: state.document.sections[location.sectionIndex]!.id, slot: location.slot }
+    : { kind: "node" as const, id: location.chain[location.chain.length - 2]!.id };
+  const siblings = location.lists[location.lists.length - 1]!;
+  const index = siblings.findIndex(node => node.id === targetId);
+  if (index < 0) return false;
+
+  const ops: Transaction["ops"][number][] = plan ? [...plan.ops] : [];
+  if (!plan && to > from) ops.push({ type: "delete_text", blockId: targetId, from, to });
+  if (blocks.length === 1) {
+    let offset = from;
+    for (const run of blocks[0]!.runs) {
+      if (!run.text) continue;
+      ops.push({ type: "insert_text", at: { blockId: targetId, offset }, text: run.text, ...(run.marks.length ? { marks: run.marks } : {}) });
+      offset += run.text.length;
+    }
+    const caret = { blockId: targetId, offset };
+    return editor.dispatch({ id: defaultIdGenerator(), baseVersion: state.version, ops, selection: { anchor: caret, head: caret }, meta: { origin: "clipboard.pasteRich", timestamp: new Date().toISOString() } }).ok;
+  }
+
+  const tailId = defaultIdGenerator();
+  ops.push({ type: "split_block", id: targetId, offset: from, newId: tailId });
+  const lastFragment = blocks[blocks.length - 1]!;
+  ops.push({ type: "set_node_type", id: tailId, nodeType: lastFragment.type, attrs: lastFragment.attrs ?? {} });
+  let firstOffset = from;
+  for (const run of blocks[0]!.runs) {
+    if (!run.text) continue;
+    ops.push({ type: "insert_text", at: { blockId: targetId, offset: firstOffset }, text: run.text, ...(run.marks.length ? { marks: run.marks } : {}) });
+    firstOffset += run.text.length;
+  }
+  let insertIndex = index + 1;
+  for (const fragment of blocks.slice(1, -1)) {
+    const node: BlockNode = {
+      type: fragment.type, id: defaultIdGenerator(), ...(fragment.attrs ? { attrs: fragment.attrs } : {}),
+      content: fragment.runs.filter(run => run.text).map(run => ({ type: "text", text: run.text, ...(run.marks.length ? { marks: run.marks } : {}) }))
+    };
+    ops.push({ type: "insert_block", parent, index: insertIndex++, node });
+  }
+  let lastOffset = 0;
+  for (const run of lastFragment.runs) {
+    if (!run.text) continue;
+    ops.push({ type: "insert_text", at: { blockId: tailId, offset: lastOffset }, text: run.text, ...(run.marks.length ? { marks: run.marks } : {}) });
+    lastOffset += run.text.length;
+  }
+  const caret = { blockId: tailId, offset: lastOffset };
+  return editor.dispatch({ id: defaultIdGenerator(), baseVersion: state.version, ops, selection: { anchor: caret, head: caret }, meta: { origin: "clipboard.pasteRich", timestamp: new Date().toISOString() } }).ok;
 }
 function markForTag(tag:string): Mark|undefined {if(tag==="b"||tag==="strong")return {type:"bold"};if(tag==="i"||tag==="em")return {type:"italic"};if(tag==="u")return {type:"underline"};if(["s","strike","del"].includes(tag))return {type:"strike"};if(tag==="code")return {type:"code"};return undefined;}
 /** Conservative HTML import: discards active elements and all attributes; only basic inline marks survive. */

@@ -64,4 +64,28 @@ describe("clipboard interoperability", () => {
     expect(ed.state.document.sections[0]!.content[0]!.content?.[1]).toMatchObject({ text: "brave ", marks: [{ type: "bold" }] });
     await ed.destroy();
   });
+
+  it("replaces a selection spanning sibling blocks with a rich multi-block fragment", async () => {
+    const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
+    const ed = await createEditor({ document: createDocument({ ids, content: [f.paragraph("Alpha one"), f.paragraph("Beta two")] }), ids });
+    registerEditingCommands(ed, { ids });
+    const [first, second] = ed.state.document.sections[0]!.content;
+    setSelection(ed, { anchor: { blockId: first!.id, offset: 6 }, head: { blockId: second!.id, offset: 4 } }, { ids });
+    const payload: ClipboardPayload = {
+      mime: "application/x-convetlib-fragment+json", text: "X\\nY",
+      blocks: [
+        { type: "paragraph", runs: [{ text: "X", marks: [{ type: "bold" }] }] },
+        { type: "heading", attrs: { level: 2 }, runs: [{ text: "Y", marks: [] }] }
+      ]
+    };
+    expect(pasteClipboardPayload(ed, payload)).toBe(true);
+    expect(ed.state.document.sections[0]!.content.map(node => ({
+      type: node.type,
+      text: (node.content ?? []).map(part => "text" in part ? part.text : "\\uFFFC").join("")
+    }))).toEqual([
+      { type: "paragraph", text: "Alpha X" },
+      { type: "heading", text: "Y two" }
+    ]);
+    await ed.destroy();
+  });
 });
