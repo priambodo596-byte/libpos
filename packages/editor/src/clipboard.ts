@@ -69,7 +69,7 @@ export function pasteClipboardPayload(editor: Editor,payload: ClipboardPayload):
   const list=loc.lists[loc.lists.length-1]!,index=list.findIndex(n=>n.id===b.id);if(index<0)return false;
   const ops:Transaction["ops"][number][]=[];if(to>from)ops.push({type:"delete_text",blockId:b.id,from,to});
   if(blocks.length===1){let offset=from;for(const r of blocks[0]!.runs){if(!r.text)continue;ops.push({type:"insert_text",at:{blockId:b.id,offset},text:r.text,...(r.marks.length?{marks:r.marks}:{})});offset+=r.text.length;}const p={blockId:b.id,offset};return editor.dispatch({id:defaultIdGenerator(),baseVersion:state.version,ops,selection:{anchor:p,head:p},meta:{origin:"clipboard.pasteRich",timestamp:new Date().toISOString()}}).ok;}
-  const tailId=defaultIdGenerator();ops.push({type:"split_block",id:b.id,offset:from,newId:tailId});let firstOffset=from;
+  const tailId=defaultIdGenerator();ops.push({type:"split_block",id:b.id,offset:from,newId:tailId});const lastFragment=blocks[blocks.length-1]!;ops.push({type:"set_node_type",id:tailId,nodeType:lastFragment.type,attrs:lastFragment.attrs??{}});let firstOffset=from;
   for(const r of blocks[0]!.runs){if(r.text){ops.push({type:"insert_text",at:{blockId:b.id,offset:firstOffset},text:r.text,...(r.marks.length?{marks:r.marks}:{})});firstOffset+=r.text.length;}}
   let insertIndex=index+1;
   for(const fragment of blocks.slice(1,-1)){const node:BlockNode={type:fragment.type,id:defaultIdGenerator(),...(fragment.attrs?{attrs:fragment.attrs}:{}),content:fragment.runs.filter(r=>r.text).map(r=>({type:"text",text:r.text,...(r.marks.length?{marks:r.marks}:{})}))};ops.push({type:"insert_block",parent,index:insertIndex++,node});}
@@ -81,7 +81,7 @@ function markForTag(tag:string): Mark|undefined {if(tag==="b"||tag==="strong")re
 export function htmlToClipboardPayload(html:string): ClipboardPayload|undefined {
   if(typeof html!=="string"||html.length>1_000_000)return undefined;
   const safe=html.replace(/<(script|style|iframe|object|svg|math)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,""),blocks:ClipboardBlock[]=[];let runs:ClipboardRun[]=[],marks:Mark[]=[],tag="p";
-  const flush=()=>{blocks.push({type:tag==="pre"?"codeBlock":/^h[1-6]$/.test(tag)?"heading":"paragraph",runs});runs=[];};
+  const flush=()=>{const heading=/^h([1-6])$/.exec(tag);blocks.push({type:tag==="pre"?"codeBlock":heading?"heading":"paragraph",...(heading?{attrs:{level:Number(heading[1])}}:{}),runs});runs=[];};
   for(const token of safe.match(/<[^>]*>|[^<]+/g)??[]){const close=token.match(/^<\s*\/\s*([a-z0-9]+)[^>]*>$/i),open=token.match(/^<\s*([a-z0-9]+)\b[^>]*>$/i);
     if(close){const t=close[1]!.toLowerCase();if(["p","div","li","pre","h1","h2","h3","h4","h5","h6"].includes(t)){flush();tag="p";}else{const m=markForTag(t);if(m){const i=marks.map(x=>x.type).lastIndexOf(m.type);if(i>=0)marks.splice(i,1);}}}
     else if(open){const t=open[1]!.toLowerCase();if(["p","div","li","pre","h1","h2","h3","h4","h5","h6"].includes(t)){if(runs.length)flush();tag=t;}else{const m=markForTag(t);if(m)marks.push(m);}if(/^<\s*br\b/i.test(token))runs.push({text:"\n",marks:[...marks]});}
