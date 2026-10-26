@@ -103,6 +103,17 @@ describe("DOCX export adapter", () => {
     expect(imported.sections[0]?.footer?.[0]?.content?.[0]).toMatchObject({ type: "text", text: "Page Footer" });
   });
 
+  it("imports inherited custom paragraph styles and direct paragraph spacing and indentation", async () => {
+    const zip = new JSZip();
+    zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="BodyCustom"/><w:spacing w:after="360"/><w:ind w:left="720" w:firstLine="240"/></w:pPr><w:r><w:t>Styled paragraph</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`);
+    zip.file("word/styles.xml", `<?xml version="1.0" encoding="UTF-8"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="BaseText"><w:name w:val="Base Text"/><w:pPr><w:spacing w:before="120" w:after="240"/><w:jc w:val="center"/></w:pPr></w:style><w:style w:type="paragraph" w:styleId="BodyCustom"><w:name w:val="Custom Body"/><w:basedOn w:val="BaseText"/><w:pPr><w:ind w:right="360"/></w:pPr></w:style></w:styles>`);
+    const bytes = await zip.generateAsync({ type: "uint8array" });
+    const imported = await importDocx(bytes);
+    const paragraph = imported.sections[0]?.content[0];
+    expect(paragraph?.type).toBe("paragraph");
+    expect(paragraph?.attrs).toMatchObject({ styleId: "BodyCustom", styleName: "Custom Body", styleBasedOn: "BaseText", align: "center", spacingBefore: 120, spacingAfter: 360, indentLeft: 720, indentRight: 360, firstLineIndent: 240 });
+  });
+
   it("rejects invalid ZIP input and enforces the configured input limit", async () => {
     await expect(importDocx(new Uint8Array([1, 2, 3]))).rejects.toThrow();
     await expect(importDocx(new Uint8Array(32), { maxInputBytes: 16 })).rejects.toThrow(/16 bytes/);

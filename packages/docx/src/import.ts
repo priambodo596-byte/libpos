@@ -159,14 +159,64 @@ function runContent(paragraph: Element, relationships: Map<string, { target: str
   }
   return inline;
 }
-function makeParagraph(element: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>): BlockNode {
+type ParagraphStyle = { id: string; name?: string; basedOn?: string; outlineLevel?: number; attrs: Record<string, string | number> };
+async function readParagraphStyles(zip: JSZip, limit: number): Promise<Map<string, ParagraphStyle>> {
+  const result = new Map<string, ParagraphStyle>();
+  if (!zip.file("word/styles.xml")) return result;
+  const xml = await readXml(zip, "word/styles.xml", limit);
+  for (const style of elements(xml.documentElement as unknown as Element, "style")) {
+    if (attr(style, "type") !== "paragraph") continue;
+    const id = attr(style, "styleId");
+    if (!id) continue;
+    const name = attr(elements(style, "name")[0], "val");
+    const basedOn = attr(elements(style, "basedOn")[0], "val");
+    const pPr = elements(style, "pPr")[0];
+    const outline = attr(elements(pPr ?? style, "outlineLvl")[0], "val");
+    result.set(id, { id, ...(name ? { name } : {}), ...(basedOn ? { basedOn } : {}), ...(outline !== undefined && Number.isInteger(Number(outline)) ? { outlineLevel: Number(outline) } : {}), attrs: readParagraphAttrs(pPr) });
+  }
+  return result;
+}
+function readParagraphAttrs(props: Element | undefined): Record<string, string | number> {
+  const result: Record<string, string | number> = {};
+  if (!props) return result;
+  const align = attr(elements(props, "jc")[0], "val");
+  if (["left", "center", "right", "both", "distribute"].includes(align ?? "")) result.align = align === "both" || align === "distribute" ? "justify" : align!;
+  const ind = elements(props, "ind")[0];
+  for (const [source, target] of [["left", "indentLeft"], ["right", "indentRight"], ["firstLine", "firstLineIndent"], ["hanging", "hangingIndent"]]) {
+    const value = attr(ind, source!);
+    if (value !== undefined && Number.isFinite(Number(value))) result[target!] = Number(value);
+  }
+  const spacing = elements(props, "spacing")[0];
+  for (const [source, target] of [["before", "spacingBefore"], ["after", "spacingAfter"], ["line", "lineSpacing"]]) {
+    const value = attr(spacing, source!);
+    if (value !== undefined && Number.isFinite(Number(value))) result[target!] = Number(value);
+  }
+  const rule = attr(spacing, "lineRule");
+  if (rule) result.lineSpacingRule = rule;
+  return result;
+}
+function makeParagraph(element: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>, styles: Map<string, ParagraphStyle> = new Map()): BlockNode {
   const props = elements(element, "pPr")[0];
-  const style = attr(elements(props ?? element, "pStyle")[0], "val");
-  const heading = style?.match(/^Heading([1-6])$/i);
+  const styleId = attr(elements(props ?? element, "pStyle")[0], "val");
+  const style = styleId ? styles.get(styleId) : undefined;
+  const heading = styleId?.match(/^Heading([1-6])$/i);
+  const level = heading ? Number(heading[1]) : style?.outlineLevel !== undefined && style.outlineLevel >= 0 && style.outlineLevel < 6 ? style.outlineLevel + 1 : undefined;
   const inline = runContent(element, relationships, media, factory);
-  const node = heading ? factory.heading(Number(heading[1]) as 1 | 2 | 3 | 4 | 5 | 6, inline) : factory.paragraph(inline);
-  const align = attr(elements(props ?? element, "jc")[0], "val");
-  if (["left", "center", "right", "both", "distribute"].includes(align ?? "")) node.attrs = { ...(node.attrs ?? {}), align: align === "both" || align === "distribute" ? "justify" : align! };
+  const node = level ? factory.heading(level as 1 | 2 | 3 | 4 | 5 | 6, inline) : factory.paragraph(inline);
+  const chain: ParagraphStyle[] = [];
+  const seen = new Set<string>();
+  let current = style;
+  while (current && !seen.has(current.id) && chain.length < 32) {
+    seen.add(current.id); chain.unshift(current);
+    current = current.basedOn ? styles.get(current.basedOn) : undefined;
+  }
+  const inherited: Record<string, string | number> = {};
+  for (const item of chain) Object.assign(inherited, item.attrs);
+  Object.assign(inherited, readParagraphAttrs(props));
+  if (styleId) inherited.styleId = styleId;
+  if (style?.name) inherited.styleName = style.name;
+  if (style?.basedOn) inherited.styleBasedOn = style.basedOn;
+  node.attrs = { ...(node.attrs ?? {}), ...inherited };
   return node;
 }
 function imagesFromParagraph(element: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>): BlockNode[] {
@@ -227,14 +277,14 @@ function numberingFor(paragraph: Element, numbering: Map<string, NumberingInfo>)
   const info = numbering.get(numId);
   return info ? { numId, info } : undefined;
 }
-function blockFromElement(element: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>): BlockNode | undefined {
-  if (element.localName === "p") return makeParagraph(element, relationships, media, factory);
+function blockFromElement(element: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>, styles: Map<string, ParagraphStyle>): BlockNode | undefined {
+  if (element.localName === "p") return makeParagraph(element, relationships, media, factory, styles);
   if (element.localName === "tbl") {
     const rows: BlockNode[] = [];
     for (const row of elements(element, "tr")) {
       const cells: BlockNode[] = [];
       for (const cell of elements(row, "tc")) {
-        const content = elements(cell, "p").map(p => makeParagraph(p, relationships, media, factory));
+        const content = elements(cell, "p").map(p => makeParagraph(p, relationships, media, factory, styles));
         cells.push(factory.block("tableCell", content.length ? content : [factory.paragraph()]));
       }
       if (cells.length) rows.push(factory.block("tableRow", cells));
@@ -297,6 +347,7 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
   }
   const body = first(documentXml, "body");
   if (!body) throw new TypeError("DOCX document.xml does not contain a document body");
+  const styles = await readParagraphStyles(zip, xmlLimit);
   const numbering = await readNumbering(zip, xmlLimit);
   const ids = options.ids ?? createSequentialIdGenerator("docx-");
   const factory = createNodeFactory(ids);
@@ -316,7 +367,7 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
         const candidate = bodyElements[i]!;
         const candidateList = candidate.localName === "p" ? numberingFor(candidate, numbering) : undefined;
         if (!candidateList || candidateList.numId !== list.numId || candidateList.info.type !== list.info.type) break;
-        const paragraph = makeParagraph(candidate, relationships, media, factory);
+        const paragraph = makeParagraph(candidate, relationships, media, factory, styles);
         items.push(factory.listItem([paragraph]));
         listImages.push(...imagesFromParagraph(candidate, relationships, media, factory));
         i += 1;
@@ -326,7 +377,7 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
       content.push(...listImages);
       continue;
     }
-    const node = blockFromElement(element, relationships, media, factory);
+    const node = blockFromElement(element, relationships, media, factory, styles);
     if (node) {
       content.push(node);
       if (element.localName === "p") content.push(...imagesFromParagraph(element, relationships, media, factory));
@@ -346,7 +397,7 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
     for (let i = 0; i < root.childNodes.length; i += 1) {
       const child = root.childNodes.item(i);
       if (child?.nodeType !== 1) continue;
-      const node = blockFromElement(child as unknown as Element, relationships, media, factory);
+      const node = blockFromElement(child as unknown as Element, relationships, media, factory, styles);
       if (node) blocks.push(node);
     }
     return blocks;

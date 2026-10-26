@@ -50,13 +50,13 @@ convetlib adalah library/SDK editor dokumen berbasis TypeScript yang dirancang a
 ### `@convetlib/docx`
 
 - Semantic DOCX export through `exportDocx(document, options?)` and initial DOCX import through `importDocx(bytes, options?)`.
-- Import reads common OOXML paragraphs, Heading 1–6 styles, bold/italic/underline/strike/superscript/subscript marks, basic tables, and section page geometry.
+- Import reads common OOXML paragraphs, built-in Heading 1–6 and custom paragraph styles with bounded `basedOn` inheritance, paragraph alignment/indentation/spacing/line-spacing attributes, bold/italic/underline/strike/superscript/subscript marks, basic tables, and section page geometry.
 - Embedded supported raster images (PNG, JPEG, GIF, BMP) are imported as editable block-level image nodes with data URIs and dimensions when available. Their position is approximated at paragraph level; exact inline positioning is not preserved.
 - Basic Word numbering definitions are mapped to structured ordered or bullet lists for adjacent paragraphs using the same numbering ID. The first-level numbering format/start value is supported; nested levels and advanced restart/override rules are not yet preserved.
 - Safe hyperlinks (`http`, `https`, `mailto`, and internal anchors) are imported as `link` marks; unsupported or unsafe schemes are not retained.
 - Default section headers and footers are imported as section-level block content. Header/footer variants, their own image relationships, and different-first/even-page behavior are not yet preserved.
 - Optional host-provided image resolver for export; remote images are not fetched implicitly.
-- DOCX import is a semantic foundation, not full-fidelity conversion. Comments/revisions, inherited/custom style resolution, merged cells, nested list levels, floating objects, and pixel-perfect Word layout are not fully supported.
+- DOCX import is a semantic foundation, not full-fidelity conversion. Paragraph style inheritance and common paragraph spacing/indentation are imported, but character-style inheritance, theme fonts/colors, comments/revisions, merged cells, nested list levels, floating objects, and pixel-perfect Word layout are not fully supported.
 
 ### `@convetlib/pdf`
 
