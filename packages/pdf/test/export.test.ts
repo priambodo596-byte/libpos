@@ -60,6 +60,28 @@ describe("PDF export adapter", () => {
     expect(bytes.byteLength).toBeGreaterThan(1000);
   });
 
+  it("renders bold, italic, underline, and strike text runs", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const doc = createDocument({ ids, content: [f.paragraph([
+      f.text("bold", [{ type: "bold" }]),
+      f.text(" italic", [{ type: "italic" }]),
+      f.text(" underline", [{ type: "underline" }]),
+      f.text(" strike", [{ type: "strike" }]),
+    ])] });
+    const bytes = await exportPdf(doc);
+    const loaded = await PDFDocument.load(bytes);
+    expect(loaded.getPageCount()).toBe(1);
+    expect(bytes.byteLength).toBeGreaterThan(1000);
+  });
+
+  it("requires base font bytes when custom font variants are supplied", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const doc = createDocument({ ids, content: [f.paragraph("font test")] });
+    await expect(exportPdf(doc, { boldFontBytes: new Uint8Array([1, 2, 3]) })).rejects.toThrow(/fontBytes is required/);
+  });
+
   it("rejects documents without sections", async () => {
     await expect(exportPdf({ sections: [] } as never)).rejects.toThrow(/at least one section/);
   });

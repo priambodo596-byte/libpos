@@ -1,9 +1,18 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import fontkit from "@pdf-lib/fontkit";
 import type { BlockNode, DocumentJSON, PageSetup, Section } from "@convetlib/core";
 
 export interface PdfExportOptions {
   /** Font size in points for normal body text. Defaults to 11. */
   fontSize?: number;
+  /** Optional custom TrueType/OpenType font bytes; embed and subset into the PDF. */
+  fontBytes?: Uint8Array;
+  /** Optional bold font bytes for marked runs. Falls back to fontBytes or standard Helvetica Bold. */
+  boldFontBytes?: Uint8Array;
+  /** Optional italic font bytes for marked runs. Falls back to fontBytes or standard Helvetica Oblique. */
+  italicFontBytes?: Uint8Array;
+  /** Optional bold-italic font bytes for marked runs. */
+  boldItalicFontBytes?: Uint8Array;
   /** Extra vertical gap after each paragraph, in points. Defaults to 5. */
   paragraphGap?: number;
   /** Resolve an image source to binary data. Remote URLs are never fetched implicitly. */
@@ -20,9 +29,9 @@ function twipsToPoints(value: number, fallback: number): number {
   return Number.isFinite(value) && value >= 0 ? value / 20 : fallback;
 }
 
-function safePdfText(value: string): string {
-  // Standard PDF fonts use WinAnsi encoding; replace unsupported glyphs until custom font embedding is added.
-  return value.replace(/[^\x20-\x7E\u00A0-\u00FF]/g, "?");
+function safePdfText(value: string, unicode = false): string {
+  // Standard PDF fonts use WinAnsi; custom embedded fonts can represent broader Unicode.
+  return unicode ? value : value.replace(/[^\x20-\x7E\u00A0-\u00FF]/g, "?");
 }
 
 function nodeText(node: BlockNode): string {
@@ -68,8 +77,8 @@ function tableRows(node: BlockNode): string[][] {
   return rows;
 }
 
-function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
-  const normalized = safePdfText(text).replace(/\r/g, "");
+function wrapText(text: string, font: PDFFont, size: number, maxWidth: number, unicode = false): string[] {
+  const normalized = safePdfText(text, unicode).replace(/\r/g, "");
   const lines: string[] = [];
   for (const rawLine of normalized.split("\n")) {
     const words = rawLine.split(/\s+/).filter(Boolean);
@@ -99,8 +108,24 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
   }
   const pdf = await PDFDocument.create();
   pdf.setTitle(document.meta.title || "Untitled");
-  const regular = await pdf.embedFont(StandardFonts.Helvetica);
-  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  let regular: PDFFont;
+  let bold: PDFFont;
+  let italic: PDFFont;
+  let boldItalic: PDFFont;
+  if (options.fontBytes || options.boldFontBytes || options.italicFontBytes || options.boldItalicFontBytes) {
+    pdf.registerFontkit(fontkit);
+    const base = options.fontBytes;
+    if (!base) throw new TypeError("fontBytes is required when custom font variants are provided");
+    regular = await pdf.embedFont(base, { subset: true });
+    bold = options.boldFontBytes ? await pdf.embedFont(options.boldFontBytes, { subset: true }) : await pdf.embedFont(StandardFonts.HelveticaBold);
+    italic = options.italicFontBytes ? await pdf.embedFont(options.italicFontBytes, { subset: true }) : await pdf.embedFont(StandardFonts.HelveticaOblique);
+    boldItalic = options.boldItalicFontBytes ? await pdf.embedFont(options.boldItalicFontBytes, { subset: true }) : await pdf.embedFont(StandardFonts.HelveticaBoldOblique);
+  } else {
+    regular = await pdf.embedFont(StandardFonts.Helvetica);
+    bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+    italic = await pdf.embedFont(StandardFonts.HelveticaOblique);
+    boldItalic = await pdf.embedFont(StandardFonts.HelveticaBoldOblique);
+  }
   const bodySize = Math.max(6, Math.min(36, options.fontSize ?? 11));
   const paragraphGap = Math.max(0, Math.min(48, options.paragraphGap ?? 5));
   const pageLayouts: Array<{ page: PDFPage; dimensions: ReturnType<typeof pageDimensions> }> = [];
@@ -123,13 +148,60 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
       if (y - height < dimensions.bottom) newPage();
     };
     const drawWrapped = (text: string, font: PDFFont, size: number, gapAfter = 0) => {
-      const lines = wrapText(text, font, size, maxWidth);
+      const lines = wrapText(text, font, size, maxWidth, Boolean(options.fontBytes));
       for (const line of lines) {
         ensureSpace(size * 1.35);
         page.drawText(line, { x: dimensions.left, y: y - size, size, font, color: rgb(0, 0, 0) });
         y -= size * 1.35;
       }
       y -= gapAfter;
+    };
+
+    const drawRichBlock = (block: BlockNode, baseSize: number, defaultFont: PDFFont) => {
+      const inline = block.content ?? [];
+      const runs = inline.map(item => {
+        if (item.type === "text") {
+          const textNode = item as { text: string; marks?: Array<{ type: string }> };
+          const marks = textNode.marks ?? [];
+          const isBold = marks.some(mark => mark.type === "bold");
+          const isItalic = marks.some(mark => mark.type === "italic");
+          const font = isBold && isItalic ? boldItalic : isBold ? bold : isItalic ? italic : defaultFont;
+          return { text: textNode.text, font, underline: marks.some(mark => mark.type === "underline"), strike: marks.some(mark => mark.type === "strike") };
+        }
+        if (item.type === "hardBreak") return { text: "\n", font: defaultFont, underline: false, strike: false };
+        if (item.type === "placeholder") {
+          const attrs = (item as { attrs?: Record<string, unknown> }).attrs;
+          return { text: "{{ " + (typeof attrs?.key === "string" ? attrs.key : "unknown") + " }}", font: defaultFont, underline: false, strike: false };
+        }
+        return { text: "", font: defaultFont, underline: false, strike: false };
+      }).filter(run => run.text.length > 0);
+      const tokens = runs.flatMap(run => (run.text.match(/\s+|[^\s]+/gu) ?? []).map(text => ({ ...run, text })));
+      let line = [] as typeof tokens;
+      const widthOf = (parts: typeof tokens) => parts.reduce((sum, part) => sum + part.font.widthOfTextAtSize(part.text, baseSize), 0);
+      const drawLine = () => {
+        if (!line.length) { y -= baseSize * 1.35; return; }
+        ensureSpace(baseSize * 1.5);
+        let x = dimensions.left;
+        const lineY = y - baseSize;
+        for (const part of line) {
+          const clean = safePdfText(part.text, Boolean(options.fontBytes));
+          const width = part.font.widthOfTextAtSize(clean, baseSize);
+          page.drawText(clean, { x, y: lineY, size: baseSize, font: part.font, color: rgb(0, 0, 0) });
+          if (part.underline) page.drawLine({ start: { x, y: lineY - 1 }, end: { x: x + width, y: lineY - 1 }, thickness: 0.5, color: rgb(0, 0, 0) });
+          if (part.strike) page.drawLine({ start: { x, y: lineY + baseSize * 0.35 }, end: { x: x + width, y: lineY + baseSize * 0.35 }, thickness: 0.5, color: rgb(0, 0, 0) });
+          x += width;
+        }
+        y -= baseSize * 1.35;
+        line = [];
+      };
+      for (const token of tokens) {
+        if (token.text.includes("\n")) { drawLine(); continue; }
+        if (line.length && widthOf([...line, token]) > maxWidth && !/^\s+$/u.test(token.text)) drawLine();
+        if (!line.length && /^\s+$/u.test(token.text)) continue;
+        line.push(token);
+      }
+      if (line.length) drawLine();
+      y -= paragraphGap;
     };
 
     for (const block of section.content) {
@@ -171,7 +243,7 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
         const padding = 4;
         for (const row of rows) {
           const cells = Array.from({ length: columns }, (_, i) => row[i] ?? "");
-          const wrapped = cells.map(value => wrapText(value, regular, bodySize, Math.max(10, cellWidth - padding * 2)));
+          const wrapped = cells.map(value => wrapText(value, regular, bodySize, Math.max(10, cellWidth - padding * 2), Boolean(options.fontBytes)));
           const rowHeight = Math.max(bodySize * 1.5, ...wrapped.map(lines => lines.length * lineHeight)) + padding * 2;
           ensureSpace(rowHeight);
           for (let i = 0; i < columns; i += 1) {
@@ -189,6 +261,11 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
         continue;
       }
       const text = nodeText(block);
+      if ((block.type === "paragraph" || block.type === "heading") && (block.content ?? []).some(item => item.type === "text" && Array.isArray((item as { marks?: unknown }).marks) && ((item as { marks: unknown[] }).marks.length > 0))) {
+        const richSize = block.type === "heading" ? Math.max(bodySize, 20 - Math.min(6, typeof block.attrs?.level === "number" ? block.attrs.level : 1) * 1.5) : bodySize;
+        drawRichBlock(block, richSize, block.type === "heading" ? bold : regular);
+        continue;
+      }
       if (block.type === "horizontalRule") {
         ensureSpace(8);
         page.drawLine({ start: { x: dimensions.left, y }, end: { x: dimensions.width - dimensions.right, y }, thickness: 0.5, color: rgb(0.5, 0.5, 0.5) });
@@ -208,7 +285,7 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
     const pageNumber = index + 1;
     const replaceTokens = (value: string) => value.replace(/\{\{\s*pageNumber\s*\}\}/gi, String(pageNumber)).replace(/\{\{\s*pageCount\s*\}\}/gi, String(totalPages));
     const drawMarginText = (value: string, y: number) => {
-      const text = safePdfText(replaceTokens(value));
+      const text = safePdfText(replaceTokens(value), Boolean(options.fontBytes));
       const maxWidth = dimensions.width - dimensions.left - dimensions.right;
       const clipped = text;
       let display = clipped;
