@@ -469,14 +469,61 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
     const relationshipId = reference?.getAttributeNS(REL_NS, "id");
     const relationship = relationshipId ? relationships.get(relationshipId) : undefined;
     if (!relationship || !relationship.type?.endsWith("/" + relationshipType) || !zip.file(relationship.target)) return undefined;
+
+    // Header/footer parts have their own .rels file; their image rIds are not
+    // the same as the main document's relationship IDs.
+    const sectionRelationships = new Map<string, { target: string; type?: string }>();
+    const slash = relationship.target.lastIndexOf("/");
+    const partDirectory = slash >= 0 ? relationship.target.slice(0, slash) : "";
+    const partName = slash >= 0 ? relationship.target.slice(slash + 1) : relationship.target;
+    const sectionRelsPath = (partDirectory ? partDirectory + "/" : "") + "_rels/" + partName + ".rels";
+    if (zip.file(sectionRelsPath)) {
+      const relsXml = await readXml(zip, sectionRelsPath, xmlLimit);
+      const relNodes = relsXml.getElementsByTagNameNS(DOC_REL_NS, "Relationship");
+      for (let i = 0; i < relNodes.length; i += 1) {
+        const rel = relNodes.item(i) as unknown as Element;
+        const id = rel.getAttribute("Id");
+        const target = rel.getAttribute("Target");
+        const type = rel.getAttribute("Type") || undefined;
+        if (!id || !target || rel.getAttribute("TargetMode") === "External") continue;
+        const segments = target.startsWith("/") ? [] : partDirectory.split("/").filter(Boolean);
+        for (const segment of target.replace(/^\//, "").split("/")) {
+          if (!segment || segment === ".") continue;
+          if (segment === "..") segments.pop();
+          else segments.push(segment);
+        }
+        const normalized = target.startsWith("/") ? target.slice(1) : segments.join("/");
+        if (normalized.split("/").includes("..")) continue;
+        sectionRelationships.set(id, { target: normalized, ...(type ? { type } : {}) });
+      }
+    }
+    const sectionMedia = new Map<string, { data: string; mime: string }>();
+    for (const rel of sectionRelationships.values()) {
+      if (!rel.type?.endsWith("/image") || sectionMedia.has(rel.target)) continue;
+      const file = zip.file(rel.target);
+      if (!file) continue;
+      const blob = await file.async("uint8array");
+      if (blob.byteLength > 10 * 1024 * 1024) continue;
+      const ext = rel.target.split(".").pop()?.toLowerCase();
+      const mime = ext === "png" ? "image/png" : ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "gif" ? "image/gif" : ext === "bmp" ? "image/bmp" : "";
+      if (!mime) continue;
+      let binary = "";
+      for (let offset = 0; offset < blob.length; offset += 0x8000) binary += String.fromCharCode(...blob.subarray(offset, Math.min(offset + 0x8000, blob.length)));
+      sectionMedia.set(rel.target, { data: `data:${mime};base64,${btoa(binary)}`, mime });
+    }
+
     const part = await readXml(zip, relationship.target, xmlLimit);
     const root = part.documentElement as unknown as Element;
     const blocks: BlockNode[] = [];
     for (let i = 0; i < root.childNodes.length; i += 1) {
       const child = root.childNodes.item(i);
       if (child?.nodeType !== 1) continue;
-      const node = blockFromElement(child as unknown as Element, relationships, media, factory, styles, characterStyles);
-      if (node) blocks.push(node);
+      const element = child as unknown as Element;
+      const node = blockFromElement(element, sectionRelationships, sectionMedia, factory, styles, characterStyles);
+      if (node) {
+        blocks.push(node);
+        if (element.localName === "p") blocks.push(...imagesFromParagraph(element, sectionRelationships, sectionMedia, factory));
+      }
     }
     return blocks;
   };
