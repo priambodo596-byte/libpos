@@ -33,6 +33,21 @@ describe("clipboard interoperability", () => {
     expect(payload?.nodes?.[1]).toMatchObject({ type: "image", attrs: { src: "https://example.com/pic.png" } });
     expect(payload?.nodes?.[2]).toMatchObject({ type: "table", content: [{ type: "tableRow" }] });
   });
+  it("imports ordered and nested HTML lists as semantic list nodes", () => {
+    const payload = htmlToClipboardPayload('<ol start="3"><li>First</li><li>Second<ul><li><strong>Nested</strong></li></ul></li></ol>');
+    expect(payload?.nodes?.[0]).toMatchObject({
+      type: "orderedList",
+      attrs: { start: 3 },
+      content: [
+        { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "First" }] }] },
+        { type: "listItem", content: [
+          { type: "paragraph", content: [{ type: "text", text: "Second" }] },
+          { type: "bulletList", content: [{ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Nested", marks: [{ type: "bold" }] }] }] }] }
+        ] }
+      ]
+    });
+  });
+
   it("preserves valid HTML table spans and normalizes invalid spans", () => {
     const payload = htmlToClipboardPayload('<table><tr><td colspan="2" rowspan="3">Merged</td><td colspan="0">Fallback</td><td rowspan="999">Bounded</td></tr></table>');
     const table = payload?.nodes?.[0];

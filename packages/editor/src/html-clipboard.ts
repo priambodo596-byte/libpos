@@ -16,7 +16,7 @@ function textNode(value: string): BlockNode { return { type: "paragraph", id: id
 
 /** Parses only a small allow-list of structural HTML. No style/event attributes are retained. */
 export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload | undefined {
-  if (!/<\s*table\b/i.test(html) && !/<\s*img\b[^>]*\bsrc\s*=\s*(["']https?:\/\/|["']data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(html)) return undefined;
+  if (!/<\s*(?:table|ul|ol)\b/i.test(html) && !/<\s*img\b[^>]*\bsrc\s*=\s*(["']https?:\/\/|["']data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(html)) return undefined;
   const tokens = html.match(/<!--[\s\S]*?-->|<[^>]*>|[^<]+/g) ?? [];
   const nodes: BlockNode[] = [];
   let paragraphRuns: ClipboardRun[] = [];
@@ -27,12 +27,16 @@ export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload
   let row: BlockNode | undefined;
   let cell: BlockNode | undefined;
   let cellRuns: ClipboardRun[] = [];
+  const listStack: BlockNode[] = [];
+  const itemStack: BlockNode[] = [];
 
   const flushParagraph = () => {
     if (paragraphRuns.length) {
       const type = paragraphTag === "pre" ? "codeBlock" : /^h[1-6]$/.test(paragraphTag) ? "heading" : "paragraph";
       const attrs = /^h[1-6]$/.test(paragraphTag) ? { level: Number(paragraphTag.slice(1)) } : undefined;
-      nodes.push({ type, id: id(), ...(attrs ? { attrs } : {}), content: paragraphRuns.filter(r => r.text).map(r => ({ type: "text", text: r.text, ...(r.marks.length ? { marks: r.marks.map(m => ({ type: m.type })) } : {}) })) });
+      const paragraph: BlockNode = { type, id: id(), ...(attrs ? { attrs } : {}), content: paragraphRuns.filter(r => r.text).map(r => ({ type: "text", text: r.text, ...(r.marks.length ? { marks: r.marks.map(m => ({ type: m.type })) } : {}) })) };
+      const parentItem = itemStack[itemStack.length - 1];
+      if (parentItem) parentItem.content?.push(paragraph); else nodes.push(paragraph);
     }
     paragraphRuns = [];
     paragraphTag = "p";
@@ -71,6 +75,18 @@ export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload
       if (blocked) { if (t === blocked) blocked = blocked; continue; }
       if (blockedTags.has(t)) { blocked = voidTags.has(t) ? undefined : t; continue; }
       if (t === "table") { flushParagraph(); flushTable(); table = { type: "table", id: id(), content: [] }; continue; }
+      if (t === "ul" || t === "ol") {
+        flushParagraph();
+        const list: BlockNode = { type: t === "ul" ? "bulletList" : "orderedList", id: id(), ...(t === "ol" ? { attrs: { start: Math.max(1, Math.min(100000, Number(attr(token, "start") ?? 1) || 1)) } } : {}), content: [] };
+        const parent = itemStack[itemStack.length - 1];
+        if (parent) parent.content?.push(list); else nodes.push(list);
+        listStack.push(list); continue;
+      }
+      if (t === "li" && listStack.length) {
+        flushParagraph();
+        const item: BlockNode = { type: "listItem", id: id(), content: [] };
+        listStack[listStack.length - 1]!.content?.push(item); itemStack.push(item); paragraphTag = "p"; continue;
+      }
       if (t === "tr" && table) { flushRow(); row = { type: "tableRow", id: id(), content: [] }; continue; }
       if ((t === "td" || t === "th") && row) {
         flushCell();
