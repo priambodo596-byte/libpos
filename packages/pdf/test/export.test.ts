@@ -49,6 +49,17 @@ describe("PDF export adapter", () => {
     expect(bytes.byteLength).toBeGreaterThan(png.byteLength);
   });
 
+  it("adds repeating headers, custom footers, and page-number tokens", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const doc = createDocument({ ids, content: [f.paragraph("First page"), f.pageBreak(), f.paragraph("Second page")] });
+    const bytes = await exportPdf(doc, { header: "CONFIDENTIAL", footer: "Page {{pageNumber}} / {{pageCount}}" });
+    const loaded = await PDFDocument.load(bytes);
+    expect(loaded.getPageCount()).toBe(2);
+    expect(loaded.getPages()).toHaveLength(2);
+    expect(bytes.byteLength).toBeGreaterThan(1000);
+  });
+
   it("rejects documents without sections", async () => {
     await expect(exportPdf({ sections: [] } as never)).rejects.toThrow(/at least one section/);
   });

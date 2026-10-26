@@ -8,6 +8,12 @@ export interface PdfExportOptions {
   paragraphGap?: number;
   /** Resolve an image source to binary data. Remote URLs are never fetched implicitly. */
   resolveImage?: (source: string) => Promise<{ data: Uint8Array; type: "png" | "jpg" }> | { data: Uint8Array; type: "png" | "jpg" };
+  /** Optional repeating header text; supports {{pageNumber}} and {{pageCount}} tokens. */
+  header?: string;
+  /** Optional repeating footer text; supports {{pageNumber}} and {{pageCount}} tokens. */
+  footer?: string;
+  /** Draw a default "Page N of M" footer when no custom footer is provided. */
+  pageNumbering?: boolean;
 }
 
 function twipsToPoints(value: number, fallback: number): number {
@@ -97,10 +103,12 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const bodySize = Math.max(6, Math.min(36, options.fontSize ?? 11));
   const paragraphGap = Math.max(0, Math.min(48, options.paragraphGap ?? 5));
+  const pageLayouts: Array<{ page: PDFPage; dimensions: ReturnType<typeof pageDimensions> }> = [];
 
   for (const section of document.sections) {
     const dimensions = pageDimensions(section.page);
     let page: PDFPage = pdf.addPage([dimensions.width, dimensions.height]);
+    pageLayouts.push({ page, dimensions });
     let y = dimensions.height - dimensions.top;
     const maxWidth = dimensions.width - dimensions.left - dimensions.right;
     const lineHeight = bodySize * 1.35;
@@ -108,6 +116,7 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
     const newPage = (setup: PageSetup = section.page) => {
       const d = pageDimensions(setup);
       page = pdf.addPage([d.width, d.height]);
+      pageLayouts.push({ page, dimensions: d });
       y = d.height - d.top;
     };
     const ensureSpace = (height: number) => {
@@ -193,5 +202,22 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
       drawWrapped(prefix + text, font, size, paragraphGap);
     }
   }
+
+  const totalPages = pageLayouts.length;
+  pageLayouts.forEach(({ page, dimensions }, index) => {
+    const pageNumber = index + 1;
+    const replaceTokens = (value: string) => value.replace(/\{\{\s*pageNumber\s*\}\}/gi, String(pageNumber)).replace(/\{\{\s*pageCount\s*\}\}/gi, String(totalPages));
+    const drawMarginText = (value: string, y: number) => {
+      const text = safePdfText(replaceTokens(value));
+      const maxWidth = dimensions.width - dimensions.left - dimensions.right;
+      const clipped = text;
+      let display = clipped;
+      while (display.length > 0 && regular.widthOfTextAtSize(display, 9) > maxWidth) display = display.slice(0, -1);
+      page.drawText(display, { x: dimensions.left, y, size: 9, font: regular, color: rgb(0, 0, 0) });
+    };
+    if (options.header) drawMarginText(options.header, dimensions.height - Math.max(18, dimensions.top * 0.55));
+    if (options.footer) drawMarginText(options.footer, Math.max(8, dimensions.bottom * 0.35));
+    else if (options.pageNumbering) drawMarginText("Page {{pageNumber}} of {{pageCount}}", Math.max(8, dimensions.bottom * 0.35));
+  });
   return pdf.save();
 }
