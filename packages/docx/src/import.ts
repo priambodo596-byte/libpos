@@ -296,7 +296,10 @@ function imagesFromParagraph(element: Element, relationships: Map<string, { targ
     const cy = Number(extent?.getAttribute("cy"));
     const width = Number.isFinite(cx) && cx > 0 ? Math.max(1, Math.min(2000, Math.round(cx / 9525))) : undefined;
     const height = Number.isFinite(cy) && cy > 0 ? Math.max(1, Math.min(2000, Math.round(cy / 9525))) : undefined;
-    result.push(factory.image(asset.data, { alt: "Imported image", ...(width ? { width } : {}), ...(height ? { height } : {}) }));
+    const paragraphProperties = elements(element, "pPr")[0];
+    const rawAlign = attr(elements(paragraphProperties ?? element, "jc")[0], "val");
+    const align = rawAlign === "left" || rawAlign === "center" || rawAlign === "right" ? rawAlign : undefined;
+    result.push(factory.image(asset.data, { alt: "Imported image", ...(width ? { width } : {}), ...(height ? { height } : {}), ...(align ? { align } : {}) }));
   }
   return result;
 }
@@ -537,7 +540,12 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
     const node = blockFromElement(element, relationships, media, factory, styles, characterStyles);
     if (node) {
       content.push(node);
-      if (element.localName === "p") content.push(...imagesFromParagraph(element, relationships, media, factory));
+      if (element.localName === "p") {
+        const images = imagesFromParagraph(element, relationships, media, factory);
+        const align = node.attrs?.align;
+        for (const image of images) if (image.type === "image" && (align === "left" || align === "center" || align === "right")) image.attrs = { ...(image.attrs ?? {}), align };
+        content.push(...images);
+      }
     }
   }
   const sectionProperties = first(body, "sectPr");
@@ -601,7 +609,12 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
       const node = blockFromElement(element, sectionRelationships, sectionMedia, factory, styles, characterStyles);
       if (node) {
         blocks.push(node);
-        if (element.localName === "p") blocks.push(...imagesFromParagraph(element, sectionRelationships, sectionMedia, factory));
+        if (element.localName === "p") {
+          const images = imagesFromParagraph(element, sectionRelationships, sectionMedia, factory);
+          const align = node.attrs?.align;
+          for (const image of images) if (image.type === "image" && (align === "left" || align === "center" || align === "right")) image.attrs = { ...(image.attrs ?? {}), align };
+          blocks.push(...images);
+        }
       }
     }
     return blocks;

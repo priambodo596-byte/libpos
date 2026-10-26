@@ -2,6 +2,8 @@ import {
   AlignmentType,
   Document,
   HeadingLevel,
+  Header,
+  Footer,
   ImageRun,
   PageBreak,
   Packer,
@@ -158,7 +160,11 @@ async function blockToParagraphs(node: BlockNode, options: DocxExportOptions): P
       const image = await options.resolveImage(src);
       const width = Math.max(1, Math.min(2000, Math.round(numberAttr(node, "width") ?? 320)));
       const height = Math.max(1, Math.min(2000, Math.round(numberAttr(node, "height") ?? 180)));
-      return [new Paragraph({ children: [new ImageRun({ data: image.data, type: image.type, transformation: { width, height } })] })];
+      const align = alignment(node);
+      return [new Paragraph({
+        children: [new ImageRun({ data: image.data, type: image.type, transformation: { width, height } })],
+        ...(align ? { alignment: align } : {}),
+      })];
     }
     return [new Paragraph({ text: options.imageFallback?.(node) ?? "[Image: " + alt + "]" })];
   }
@@ -193,7 +199,16 @@ export async function exportDocx(document: DocumentJSON, options: DocxExportOpti
     const children: Array<Paragraph | Table> = [];
     for (const block of section.content) children.push(...await blockToParagraphs(block, options));
     if (!children.length) children.push(new Paragraph({ text: "" }));
-    sections.push({ properties: { page: pageProperties(section.page) }, children });
+    const headerChildren: Array<Paragraph | Table> = [];
+    for (const block of section.header ?? []) headerChildren.push(...await blockToParagraphs(block, options));
+    const footerChildren: Array<Paragraph | Table> = [];
+    for (const block of section.footer ?? []) footerChildren.push(...await blockToParagraphs(block, options));
+    sections.push({
+      properties: { page: pageProperties(section.page) },
+      ...(headerChildren.length ? { headers: { default: new Header({ children: headerChildren }) } } : {}),
+      ...(footerChildren.length ? { footers: { default: new Footer({ children: footerChildren }) } } : {}),
+      children,
+    });
   }
   const doc = new Document({
     title: document.meta.title,

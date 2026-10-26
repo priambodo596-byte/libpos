@@ -199,6 +199,28 @@ describe("DOCX export adapter", () => {
     expect(imported.sections[0]?.content).toHaveLength(1);
   });
 
+  it("round-trips an aligned image in the DOCX section header", async () => {
+    const zip = new JSZip();
+    zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body><w:p><w:r><w:t>Body</w:t></w:r></w:p><w:sectPr><w:headerReference w:type="default" r:id="rHeader"/></w:sectPr></w:body></w:document>`);
+    zip.file("word/_rels/document.xml.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rHeader" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/></Relationships>`);
+    zip.file("word/header1.xml", `<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:drawing><wp:inline><wp:extent cx="304800" cy="304800"/><a:graphic><a:graphicData><a:blip r:embed="rLogo"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p></w:hdr>`);
+    zip.file("word/_rels/header1.xml.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.png"/></Relationships>`);
+    zip.file("word/media/logo.png", Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII="), c => c.charCodeAt(0)));
+    const source = await zip.generateAsync({ type: "uint8array" });
+    const imported = await importDocx(source);
+    expect(imported.sections[0]?.header?.[0]?.type).toBe("paragraph");
+    expect(imported.sections[0]?.header?.[1]).toMatchObject({ type: "image", attrs: { align: "right", width: 32, height: 32 } });
+
+    const exported = await exportDocx(imported, { resolveImage: async () => ({ data: Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII="), c => c.charCodeAt(0)), type: "png" }) });
+    const result = await JSZip.loadAsync(exported);
+    const headerPath = Object.keys(result.files).find(name => /^word\/header\d+\.xml$/.test(name));
+    expect(headerPath).toBeTruthy();
+    const headerXml = await result.file(headerPath!)!.async("string");
+    expect(headerXml).toContain('w:val="right"');
+    expect(headerXml).toContain("<w:drawing>");
+    expect(Object.keys(result.files).some(name => /^word\/_rels\/header\d+\.xml\.rels$/.test(name))).toBe(true);
+  });
+
   it("rejects invalid ZIP input and enforces the configured input limit", async () => {
     await expect(importDocx(new Uint8Array([1, 2, 3]))).rejects.toThrow();
     await expect(importDocx(new Uint8Array(32), { maxInputBytes: 16 })).rejects.toThrow(/16 bytes/);

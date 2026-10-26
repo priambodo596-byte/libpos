@@ -233,6 +233,7 @@ export const CORE_NODE_SPECS: readonly NodeSpec[] = [
       alt: optionalString,
       width: { validate: isPositiveNumber },
       height: { validate: isPositiveNumber },
+      align: { default: "center", validate: (v) => ["left", "center", "right"].includes(v as string) },
     },
   },
   { name: "bulletList", kind: "block", groups: ["block"], content: { children: "block", allow: ["listItem"], min: 1 } },

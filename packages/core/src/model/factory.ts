@@ -66,11 +66,12 @@ export function createNodeFactory(nextId: IdGenerator = defaultIdGenerator) {
       "table",
       rows.map((cells) => block("tableRow", cells.map((c) => block("tableCell", [paragraph(c)])))),
     );
-  const image = (src: string, opts: { alt?: string; width?: number; height?: number } = {}) => {
+  const image = (src: string, opts: { alt?: string; width?: number; height?: number; align?: "left" | "center" | "right" } = {}) => {
     const attrs: Attrs = { src };
     if (opts.alt !== undefined) attrs["alt"] = opts.alt;
     if (opts.width !== undefined) attrs["width"] = opts.width;
     if (opts.height !== undefined) attrs["height"] = opts.height;
+    if (opts.align !== undefined) attrs["align"] = opts.align;
     return block("image", undefined, attrs);
   };
   const placeholder = (key: string, fallback?: string): Inline => ({
