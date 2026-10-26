@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import JSZip from "jszip";
-import { createDocument, createNodeFactory, createSequentialIdGenerator } from "@convetlib/core";
+import { createDocument, createNodeFactory, createSequentialIdGenerator, type BlockNode } from "@convetlib/core";
 import { exportDocx, importDocx } from "../src/index";
 
 describe("DOCX export adapter", () => {
@@ -87,6 +87,22 @@ describe("DOCX export adapter", () => {
     expect(list?.attrs?.start).toBe(3);
     expect(list?.content).toHaveLength(2);
     expect(list?.content?.[0]).toMatchObject({ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "First" }] }] });
+  });
+
+  it("imports nested numbering levels and per-list start overrides", async () => {
+    const zip = new JSZip();
+    zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="12"/></w:numPr></w:pPr><w:r><w:t>Parent item</w:t></w:r></w:p><w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="12"/></w:numPr></w:pPr><w:r><w:t>Nested bullet</w:t></w:r></w:p><w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="12"/></w:numPr></w:pPr><w:r><w:t>Second parent</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`);
+    zip.file("word/numbering.xml", `<?xml version="1.0" encoding="UTF-8"?><w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:abstractNum w:abstractNumId="2"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/></w:lvl><w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="bullet"/></w:lvl></w:abstractNum><w:num w:numId="12"><w:abstractNumId w:val="2"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="5"/></w:lvlOverride></w:num></w:numbering>`);
+    const bytes = await zip.generateAsync({ type: "uint8array" });
+    const imported = await importDocx(bytes);
+    const list = imported.sections[0]?.content[0];
+    expect(list).toMatchObject({ type: "orderedList", attrs: { start: 5 } });
+    expect(list?.content).toHaveLength(2);
+    const firstItem = list?.content?.[0] as BlockNode | undefined;
+    const nestedList = firstItem?.content?.[1] as BlockNode | undefined;
+    const secondItem = list?.content?.[1] as BlockNode | undefined;
+    expect(nestedList).toMatchObject({ type: "bulletList", content: [{ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Nested bullet" }] }] }] });
+    expect(secondItem?.content?.[0]).toMatchObject({ type: "paragraph", content: [{ type: "text", text: "Second parent" }] });
   });
 
   it("imports safe hyperlinks and default section headers and footers", async () => {

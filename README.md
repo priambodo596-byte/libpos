@@ -52,11 +52,11 @@ convetlib adalah library/SDK editor dokumen berbasis TypeScript yang dirancang a
 - Semantic DOCX export through `exportDocx(document, options?)` and initial DOCX import through `importDocx(bytes, options?)`.
 - Import reads common OOXML paragraphs, built-in Heading 1–6 and custom paragraph styles with bounded `basedOn` inheritance, paragraph alignment/indentation/spacing/line-spacing attributes, bold/italic/underline/strike/superscript/subscript marks, basic tables, and section page geometry.
 - Embedded supported raster images (PNG, JPEG, GIF, BMP) are imported as editable block-level image nodes with data URIs and dimensions when available. Their position is approximated at paragraph level; exact inline positioning is not preserved.
-- Basic Word numbering definitions are mapped to structured ordered or bullet lists for adjacent paragraphs using the same numbering ID. The first-level numbering format/start value is supported; nested levels and advanced restart/override rules are not yet preserved.
+- Word numbering definitions map to structured ordered/bullet lists, including nested levels (up to 9 levels), per-list start overrides, and level overrides. Advanced restart/override semantics and numbering formats beyond bullet-versus-ordered are not fully preserved. See the Stage 19 visual proof in `docs/stage-reports/stage-19-numbering-proof.png`.
 - Safe hyperlinks (`http`, `https`, `mailto`, and internal anchors) are imported as `link` marks; unsupported or unsafe schemes are not retained.
 - Default section headers and footers are imported as section-level block content. Header/footer variants, their own image relationships, and different-first/even-page behavior are not yet preserved.
 - Optional host-provided image resolver for export; remote images are not fetched implicitly.
-- DOCX import is a semantic foundation, not full-fidelity conversion. Paragraph style inheritance, common paragraph spacing/indentation, and supported rich-text marks inherited from paragraph/character styles and direct run properties are imported. Theme fonts/colors, comments/revisions, merged cells, nested list levels, floating objects, and pixel-perfect Word layout are not fully supported.
+- DOCX import is a semantic foundation, not full-fidelity conversion. Paragraph style inheritance, common paragraph spacing/indentation, and supported rich-text marks inherited from paragraph/character styles and direct run properties are imported. Theme fonts/colors, comments/revisions, merged cells, advanced numbering restarts, floating objects, and pixel-perfect Word layout are not fully supported.
 
 ### `@convetlib/pdf`
 

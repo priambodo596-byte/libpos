@@ -283,22 +283,24 @@ function imagesFromParagraph(element: Element, relationships: Map<string, { targ
   }
   return result;
 }
-type NumberingInfo = { type: "orderedList" | "bulletList"; start: number };
+type NumberingLevel = { type: "orderedList" | "bulletList"; start: number; format: string };
+type NumberingInfo = { levels: Map<number, NumberingLevel>; startOverride?: number };
 function readNumbering(zip: JSZip, maxBytes: number): Promise<Map<string, NumberingInfo>> {
   const result = new Map<string, NumberingInfo>();
   if (!zip.file("word/numbering.xml")) return Promise.resolve(result);
   return readXml(zip, "word/numbering.xml", maxBytes).then(xml => {
-    const formats = new Map<string, Map<number, { type: "orderedList" | "bulletList"; start: number }>>();
+    const formats = new Map<string, Map<number, NumberingLevel>>();
     for (const abstract of descendants(xml.documentElement as unknown as Element, "abstractNum")) {
       const abstractId = attr(abstract, "abstractNumId");
       if (!abstractId) continue;
-      const levels = new Map<number, { type: "orderedList" | "bulletList"; start: number }>();
+      const levels = new Map<number, NumberingLevel>();
       for (const level of elements(abstract, "lvl")) {
         const ilvl = Number(attr(level, "ilvl") ?? "0");
-        const fmt = attr(elements(level, "numFmt")[0], "val");
+        const fmt = attr(elements(level, "numFmt")[0], "val") ?? "decimal";
         const start = Number(attr(elements(level, "start")[0], "val") ?? "1");
-        if (Number.isInteger(ilvl) && ilvl >= 0) levels.set(ilvl, {
+        if (Number.isInteger(ilvl) && ilvl >= 0 && ilvl < 9) levels.set(ilvl, {
           type: fmt === "bullet" ? "bulletList" : "orderedList",
+          format: fmt,
           start: Number.isInteger(start) && start > 0 ? start : 1,
         });
       }
@@ -308,20 +310,37 @@ function readNumbering(zip: JSZip, maxBytes: number): Promise<Map<string, Number
       const numId = attr(num, "numId");
       const abstractId = attr(elements(num, "abstractNumId")[0], "val");
       if (!numId || !abstractId) continue;
-      const level = formats.get(abstractId)?.get(0);
-      if (level) result.set(numId, level);
+      const levels = new Map(formats.get(abstractId) ?? []);
+      let startOverride: number | undefined;
+      for (const override of elements(num, "lvlOverride")) {
+        const ilvl = Number(attr(override, "ilvl") ?? "0");
+        if (!Number.isInteger(ilvl) || ilvl < 0 || ilvl > 8) continue;
+        const nestedLevel = elements(override, "lvl")[0];
+        const previous = levels.get(ilvl) ?? { type: "orderedList" as const, format: "decimal", start: 1 };
+        if (nestedLevel) {
+          const fmt = attr(elements(nestedLevel, "numFmt")[0], "val") ?? previous.format;
+          const start = Number(attr(elements(nestedLevel, "start")[0], "val") ?? previous.start);
+          levels.set(ilvl, { type: fmt === "bullet" ? "bulletList" : "orderedList", format: fmt, start: Number.isInteger(start) && start > 0 ? start : previous.start });
+        }
+        const overrideStart = Number(attr(elements(override, "startOverride")[0], "val"));
+        if (ilvl === 0 && Number.isInteger(overrideStart) && overrideStart > 0) startOverride = overrideStart;
+      }
+      if (levels.size) result.set(numId, { levels, ...(startOverride ? { startOverride } : {}) });
     }
     return result;
   });
 }
-function numberingFor(paragraph: Element, numbering: Map<string, NumberingInfo>): { numId: string; info: NumberingInfo } | undefined {
+function numberingFor(paragraph: Element, numbering: Map<string, NumberingInfo>): { numId: string; level: number; info: NumberingInfo; levelInfo: NumberingLevel } | undefined {
   const props = elements(paragraph, "pPr")[0];
   if (!props) return undefined;
   const numPr = elements(props, "numPr")[0];
   const numId = attr(elements(numPr ?? props, "numId")[0], "val");
   if (!numId) return undefined;
+  const levelRaw = Number(attr(elements(numPr ?? props, "ilvl")[0], "val") ?? "0");
+  const level = Number.isInteger(levelRaw) && levelRaw >= 0 && levelRaw <= 8 ? levelRaw : 0;
   const info = numbering.get(numId);
-  return info ? { numId, info } : undefined;
+  const levelInfo = info?.levels.get(level) ?? (level > 0 ? info?.levels.get(level - 1) : undefined);
+  return info && levelInfo ? { numId, level, info, levelInfo } : undefined;
 }
 function blockFromElement(element: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>, styles: Map<string, ParagraphStyle>, characterStyles: Map<string, CharacterStyle>): BlockNode | undefined {
   if (element.localName === "p") return makeParagraph(element, relationships, media, factory, styles, characterStyles);
@@ -408,19 +427,35 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
     const element = bodyElements[i]!;
     const list = element.localName === "p" ? numberingFor(element, numbering) : undefined;
     if (list) {
-      const items: BlockNode[] = [];
       const listImages: BlockNode[] = [];
+      const stack: Array<{ level: number; numId: string; listNode: BlockNode; lastItem?: BlockNode }> = [];
       while (i < bodyElements.length) {
         const candidate = bodyElements[i]!;
         const candidateList = candidate.localName === "p" ? numberingFor(candidate, numbering) : undefined;
-        if (!candidateList || candidateList.numId !== list.numId || candidateList.info.type !== list.info.type) break;
+        if (!candidateList || candidateList.numId !== list.numId) break;
+        const level = Math.min(candidateList.level, stack.length);
+        const levelInfo = candidateList.levelInfo;
         const paragraph = makeParagraph(candidate, relationships, media, factory, styles, characterStyles);
-        items.push(factory.listItem([paragraph]));
+        const item = factory.listItem([paragraph]);
+        stack.length = level + 1;
+        const current = stack[level];
+        let listNode: BlockNode;
+        if (current && current.numId === candidateList.numId && current.listNode.type === levelInfo.type) {
+          listNode = current.listNode;
+          listNode.content = [...(listNode.content ?? []), item];
+          current.lastItem = item;
+        } else {
+          listNode = factory.block(levelInfo.type, [item], levelInfo.type === "orderedList" ? { start: level === 0 ? candidateList.info.startOverride ?? levelInfo.start : levelInfo.start } : undefined);
+          if (level > 0 && stack[level - 1]?.lastItem) {
+            const parentItem = stack[level - 1]!.lastItem!;
+            parentItem.content = [...(parentItem.content ?? []), listNode];
+          } else content.push(listNode);
+          stack[level] = { level, numId: candidateList.numId, listNode, lastItem: item };
+        }
         listImages.push(...imagesFromParagraph(candidate, relationships, media, factory));
         i += 1;
       }
       i -= 1;
-      if (items.length) content.push(factory.block(list.info.type, items, list.info.type === "orderedList" ? { start: list.info.start } : undefined));
       content.push(...listImages);
       continue;
     }
