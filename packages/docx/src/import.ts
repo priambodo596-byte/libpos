@@ -68,7 +68,7 @@ function readXml(zip: JSZip, path: string, maxBytes: number): Promise<XmlDocumen
 function twipsToPoints(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : fallback;
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed / 20) : fallback;
 }
 function readPageSetup(documentXml: XmlDocument): PageSetup {
   const sect = first(documentXml, "sectPr");

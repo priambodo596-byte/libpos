@@ -56,7 +56,10 @@ describe("DOCX export adapter", () => {
     expect(paragraphNode?.content?.[0]).toMatchObject({ type: "text", text: "Important", marks: [{ type: "bold" }] });
     const tableNode = imported.sections[0]?.content[2];
     expect(tableNode?.content).toHaveLength(2);
-    expect(imported.sections[0]?.page.size.width).toBeGreaterThan(10000);
+    expect(imported.sections[0]?.page.size.width).toBeGreaterThan(500);
+    expect(imported.sections[0]?.page.size.width).toBeLessThan(700);
+    expect(imported.sections[0]?.page.margins.left).toBeGreaterThan(40);
+    expect(imported.sections[0]?.page.margins.left).toBeLessThan(100);
   });
 
   it("rejects invalid ZIP input and enforces the configured input limit", async () => {
