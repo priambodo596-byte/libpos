@@ -34,6 +34,14 @@ describe("Schema.validate: accepts", () => {
     expect(codes(d)).toEqual([]);
   });
 
+  it("accepts negative Word paragraph indents used for hanging/RTL layouts", () => {
+    const d = broken((d) => {
+      const p = blockOf(d, "paragraph");
+      p.attrs = { ...(p.attrs ?? {}), indentRight: -120, firstLineIndent: -240, hangingIndent: -240 };
+    });
+    expect(coreSchema.validate(d as never)).toEqual([]);
+  });
+
   it("header and footer content with page number nodes", () => {
     const d = broken((d) => {
       section(d).footer = [{ type: "paragraph", id: "f1", content: [{ type: "text", text: "Page " }, { type: "pageNumber" }, { type: "text", text: " of " }, { type: "pageCount" }] }];
