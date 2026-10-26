@@ -4,7 +4,7 @@ import { isTextBlock, locateBlock, planCrossBlockEdit } from "./structure";
 
 export interface ClipboardRun { readonly text: string; readonly marks: readonly Mark[]; }
 export interface ClipboardBlock { readonly type: "paragraph" | "heading" | "codeBlock"; readonly attrs?: BlockNode["attrs"]; readonly runs: readonly ClipboardRun[]; }
-export interface ClipboardPayload { readonly mime: "text/plain" | "text/html" | "application/x-convetlib-fragment+json"; readonly text: string; readonly html?: string; readonly runs?: readonly ClipboardRun[]; readonly blocks?: readonly ClipboardBlock[]; }
+export interface ClipboardPayload { readonly mime: "text/plain" | "text/html" | "application/x-convetlib-fragment+json"; readonly text: string; readonly html?: string; readonly runs?: readonly ClipboardRun[]; readonly blocks?: readonly ClipboardBlock[]; /** Validated structural fragments (images/tables) supplied by a trusted adapter or HTML importer. */ readonly nodes?: readonly BlockNode[]; }
 function findBlock(state: EditorState, id: string): BlockNode | undefined {
   const scan = (nodes: BlockNode[]): BlockNode | undefined => {
     for (const n of nodes) { if (n.id === id) return n; const kids = (n.content ?? []).filter((x): x is BlockNode => typeof (x as BlockNode).id === "string"); const found = scan(kids); if (found) return found; }
@@ -65,7 +65,57 @@ export function cutSelection(editor: Editor): ClipboardPayload | undefined {
   return editor.commands.execute("text.deleteBackward").ok?payload:undefined;
 }
 export function pastePlainText(editor: Editor,text: string): boolean { return typeof text==="string"&&editor.commands.execute("text.insert",{text}).ok; }
+function cloneStructuralNode(node: BlockNode, depth = 0): BlockNode | undefined {
+  if (depth > 12 || !["image", "table", "tableRow", "tableCell", "paragraph"].includes(node.type)) return undefined;
+  if (node.type === "image") {
+    const src = node.attrs?.src;
+    if (typeof src !== "string" || !/^(https?:|data:image\/(png|jpeg|gif|webp);base64,)/i.test(src)) return undefined;
+    const attrs: NonNullable<BlockNode["attrs"]> = { src };
+    if (typeof node.attrs?.alt === "string") attrs.alt = node.attrs.alt;
+    for (const k of ["width", "height"] as const) if (typeof node.attrs?.[k] === "number" && Number.isFinite(node.attrs[k]) && node.attrs[k]! > 0) attrs[k] = node.attrs[k]!;
+    return { type: "image", id: defaultIdGenerator(), attrs };
+  }
+  const content: NonNullable<BlockNode["content"]> = [];
+  for (const child of node.content ?? []) {
+    if (typeof (child as BlockNode).id === "string") {
+      const cloned = cloneStructuralNode(child as BlockNode, depth + 1);
+      if (!cloned) return undefined;
+      content.push(cloned);
+    } else if (node.type === "paragraph" && child.type === "text" && typeof (child as { text?: unknown }).text === "string") {
+      const value = (child as Extract<Inline, { type: "text" }>).text;
+      if (value) content.push({ type: "text", text: value, ...((child as Extract<Inline, { type: "text" }>).marks ? { marks: (child as Extract<Inline, { type: "text" }>).marks!.filter(m => ["bold", "italic", "underline", "strike", "code"].includes(m.type)).map(m => ({ type: m.type })) } : {}) });
+    } else return undefined;
+  }
+  if (node.type === "table" && (!content.length || content.some(n => n.type !== "tableRow"))) return undefined;
+  if (node.type === "tableRow" && (!content.length || content.some(n => n.type !== "tableCell"))) return undefined;
+  if (node.type === "tableCell" && (!content.length || content.some(n => n.type !== "paragraph"))) return undefined;
+  return { type: node.type, id: defaultIdGenerator(), ...(node.type === "tableCell" ? { attrs: { colspan: 1, rowspan: 1 } } : {}), ...(content.length ? { content } : {}) };
+}
+
+function pasteStructuralNodes(editor: Editor, input: readonly BlockNode[]): boolean {
+  const nodes = input.map(n => cloneStructuralNode(n));
+  if (!nodes.length || nodes.some(n => !n)) return false;
+  const state = editor.state, selection = state.selection;
+  if (!selection || selection.anchor.blockId !== selection.head.blockId) return false;
+  const targetId = selection.anchor.blockId, target = findBlock(state, targetId), location = locateBlock(state, targetId);
+  if (!target || !location || !isTextBlock(target)) return false;
+  const from = Math.min(selection.anchor.offset, selection.head.offset), to = Math.max(selection.anchor.offset, selection.head.offset);
+  const parent = location.chain.length === 1
+    ? { kind: "section" as const, id: state.document.sections[location.sectionIndex]!.id, slot: location.slot }
+    : { kind: "node" as const, id: location.chain[location.chain.length - 2]!.id };
+  const siblings = location.lists[location.lists.length - 1]!, index = siblings.findIndex(n => n.id === targetId);
+  if (index < 0 || from < 0 || to > blockText(target).length) return false;
+  const tailId = defaultIdGenerator(), ops: Transaction["ops"][number][] = [];
+  if (to > from) ops.push({ type: "delete_text", blockId: targetId, from, to });
+  ops.push({ type: "split_block", id: targetId, offset: from, newId: tailId });
+  let insertIndex = index + 1;
+  for (const node of nodes as BlockNode[]) ops.push({ type: "insert_block", parent, index: insertIndex++, node });
+  const caret = { blockId: tailId, offset: 0 };
+  return editor.dispatch({ id: defaultIdGenerator(), baseVersion: state.version, ops, selection: { anchor: caret, head: caret }, meta: { origin: "clipboard.pasteStructural", timestamp: new Date().toISOString() } }).ok;
+}
+
 export function pasteClipboardPayload(editor: Editor, payload: ClipboardPayload): boolean {
+  if (payload.nodes?.length) return pasteStructuralNodes(editor, payload.nodes);
   const blocks = payload.blocks?.length ? payload.blocks : payload.runs?.length ? [{ type: "paragraph" as const, runs: payload.runs }] : undefined;
   if (!blocks?.length) return pastePlainText(editor, payload.text);
   const state = editor.state, selection = state.selection;

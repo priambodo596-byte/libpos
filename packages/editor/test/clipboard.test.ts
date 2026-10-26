@@ -23,6 +23,46 @@ describe("clipboard interoperability", () => {
     expect(payload?.text).not.toContain("evil frame");
   });
 
+  it("pastes a validated image node without flattening it to text", async () => {
+    const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
+    const ed = await createEditor({ document: createDocument({ ids, content: [f.paragraph("before after")] }), ids });
+    registerEditingCommands(ed, { ids });
+    const paragraph = ed.state.document.sections[0]!.content[0]!;
+    setSelection(ed, { anchor: { blockId: paragraph.id, offset: 7 }, head: { blockId: paragraph.id, offset: 7 } }, { ids });
+    expect(pasteClipboardPayload(ed, { mime: "application/x-convetlib-fragment+json", text: "", nodes: [{ type: "image", id: "external-image", attrs: { src: "https://example.com/image.png", alt: "diagram", width: 120 } }] })).toBe(true);
+    const content = ed.state.document.sections[0]!.content;
+    expect(content.map(n => n.type)).toEqual(["paragraph", "image", "paragraph"]);
+    expect(content[1]).toMatchObject({ type: "image", attrs: { src: "https://example.com/image.png", alt: "diagram", width: 120 } });
+    expect(content[0]!.content?.map(n => "text" in n ? n.text : "").join("")).toBe("before ");
+    expect(content[2]!.content?.map(n => "text" in n ? n.text : "").join("")).toBe("after");
+    await ed.destroy();
+  });
+
+  it("pastes a table fragment with nested rows and cells", async () => {
+    const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
+    const ed = await createEditor({ document: createDocument({ ids, content: [f.paragraph("start end")] }), ids });
+    registerEditingCommands(ed, { ids });
+    const paragraph = ed.state.document.sections[0]!.content[0]!;
+    setSelection(ed, { anchor: { blockId: paragraph.id, offset: 6 }, head: { blockId: paragraph.id, offset: 6 } }, { ids });
+    const table: import("@convetlib/core").BlockNode = { type: "table", id: "t", content: [{ type: "tableRow", id: "r", content: [{ type: "tableCell", id: "c", content: [f.paragraph("Cell value")] }] }] };
+    expect(pasteClipboardPayload(ed, { mime: "application/x-convetlib-fragment+json", text: "Cell value", nodes: [table] })).toBe(true);
+    const content = ed.state.document.sections[0]!.content;
+    expect(content.map(n => n.type)).toEqual(["paragraph", "table", "paragraph"]);
+    expect(content[1]!.content?.[0]).toMatchObject({ type: "tableRow", content: [{ type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "Cell value" }] }] }] });
+    await ed.destroy();
+  });
+
+  it("rejects unsafe image sources in structural clipboard fragments", async () => {
+    const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
+    const ed = await createEditor({ document: createDocument({ ids, content: [f.paragraph("safe")] }), ids });
+    registerEditingCommands(ed, { ids });
+    const paragraph = ed.state.document.sections[0]!.content[0]!;
+    setSelection(ed, { anchor: { blockId: paragraph.id, offset: 2 }, head: { blockId: paragraph.id, offset: 2 } }, { ids });
+    expect(pasteClipboardPayload(ed, { mime: "application/x-convetlib-fragment+json", text: "", nodes: [{ type: "image", id: "bad", attrs: { src: "javascript:alert(1)" } }] })).toBe(false);
+    expect(ed.state.document.sections[0]!.content).toHaveLength(1);
+    await ed.destroy();
+  });
+
   it("rejects excessively large HTML input", () => {
     expect(htmlToClipboardPayload("x".repeat(1_000_001))).toBeUndefined();
   });
