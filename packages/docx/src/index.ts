@@ -203,3 +203,5 @@ export async function exportDocx(document: DocumentJSON, options: DocxExportOpti
   return new Uint8Array(buffer);
 }
 
+export { importDocx } from './import';
+export type { DocxImportOptions } from './import';

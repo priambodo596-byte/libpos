@@ -49,10 +49,10 @@ convetlib adalah library/SDK editor dokumen berbasis TypeScript yang dirancang a
 
 ### `@convetlib/docx`
 
-- Semantic DOCX export through `exportDocx(document, options?)`.
-- Supports paragraphs, headings, basic text marks, page breaks, simple lists/tables, and page geometry.
+- Semantic DOCX export through `exportDocx(document, options?)` and initial DOCX import through `importDocx(bytes, options?)`.
+- Import reads common OOXML paragraphs, Heading 1–6 styles, bold/italic/underline/strike/superscript/subscript marks, basic tables, and section page geometry. Recognized inline image references currently become readable `[Imported image]` placeholders.
 - Optional host-provided image resolver; remote images are not fetched implicitly.
-- DOCX import and pixel-perfect HTML/CSS conversion are not implemented yet.
+- DOCX import is an early semantic foundation, not full-fidelity conversion. List numbering, embedded image extraction into editable image nodes, headers/footers, comments/revisions, merged cells, and pixel-perfect HTML/CSS conversion are not supported yet.
 
 ### `@convetlib/pdf`
 
@@ -354,7 +354,7 @@ Integrasi browser dan HTML importer memiliki cakupan yang konservatif. Uji HTML 
 | `@convetlib/react` | Adapter React | Direncanakan |
 | `@convetlib/web-components` | Adapter Web Components | Direncanakan |
 | `@convetlib/layout` | Pagination dan layout halaman | Direncanakan |
-| `@convetlib/docx` | Export DOCX semantik | Fondasi ekspor tersedia; import direncanakan |
+| `@convetlib/docx` | Import/export DOCX | Fondasi ekspor dan import semantik tersedia; fitur Word kompleks masih terbatas |
 | `@convetlib/pdf` | Export PDF semantik | Fondasi ekspor tersedia; layout kompleks dan aksesibilitas PDF masih dikembangkan |
 | `@convetlib/templates` | Template dan placeholder | Fondasi tersedia |
 | `@convetlib/review` | Comments, suggestions, track changes | Direncanakan |
@@ -366,7 +366,7 @@ Package yang berstatus direncanakan pada tabel tersebut belum tersedia sebagai p
 Repository ini sedang dikembangkan dan **belum merupakan editor dokumen enterprise lengkap yang siap dipakai produksi tanpa integrasi tambahan**.
 
 - Belum ada renderer UI lengkap atau adapter React/Web Components.
-- DOCX export baru tersedia dalam cakupan semantik dasar; DOCX import dan pagination engine lengkap belum tersedia. PDF table layout supports weighted columns, wrapped cell text, and repeated first-row headers when tables continue to another page; merged-cell layout and splitting a single oversized row are not implemented. Fondasi pagination berbasis tinggi blok dari host serta aturan `keepWithNext` sudah tersedia; pemecahan baris paragraf dan aturan layout kompleks belum tersedia.
+- DOCX import/export tersedia dalam cakupan semantik dasar; import belum mempertahankan semua fitur Word dan pagination engine lengkap belum tersedia. PDF table layout supports weighted columns, wrapped cell text, and repeated first-row headers when tables continue to another page; merged-cell layout and splitting a single oversized row are not implemented. Fondasi pagination berbasis tinggi blok dari host serta aturan `keepWithNext` sudah tersedia; pemecahan baris paragraf dan aturan layout kompleks belum tersedia.
 - Seleksi lintas section untuk blok teks tingkat atas pada body didukung dalam batas planner; seleksi lintas header/body/footer dan struktur bersarang lintas section tetap belum didukung.
 - Clipboard struktural gambar/tabel serta impor HTML campuran paragraf-gambar-tabel tersedia dalam cakupan konservatif; fidelitas penuh HTML/CSS, tabel kompleks, dan impor gambar biner otomatis belum didukung.
 - Pengujian IME sistem operasi nyata dan audit screen reader manual masih perlu dilakukan.
