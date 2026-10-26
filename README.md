@@ -39,7 +39,7 @@ convetlib adalah library/SDK editor dokumen berbasis TypeScript yang dirancang a
 - Pengeditan lintas blok yang didukung planner, termasuk sejumlah struktur bersarang.
 - Penggantian seleksi lintas section untuk blok teks tingkat atas pada body dokumen; header/footer dan struktur bersarang lintas section ditolak secara aman.
 - Perintah penghapusan baris/kolom tabel dengan guard untuk struktur yang tidak aman.
-- Keyboard shortcut helper, clipboard plain/rich/structural utilities, HTML importer konservatif untuk teks dan urutan paragraf-gambar-tabel sederhana, serta composition/IME utilities.
+- Keyboard shortcut helper, clipboard plain/rich/structural utilities, HTML importer konservatif untuk teks dan urutan paragraf-gambar-tabel sederhana, fondasi pagination berbasis pengukuran host, serta composition/IME utilities.
 - Browser DOM binder untuk menghubungkan event input dan selection ke model.
 
 ### `@convetlib/ui`
@@ -353,7 +353,7 @@ Package yang berstatus direncanakan pada tabel tersebut belum tersedia sebagai p
 Repository ini sedang dikembangkan dan **belum merupakan editor dokumen enterprise lengkap yang siap dipakai produksi tanpa integrasi tambahan**.
 
 - Belum ada renderer UI lengkap atau adapter React/Web Components.
-- Belum ada import/export DOCX atau export PDF, pagination engine, maupun template engine.
+- Belum ada import/export DOCX atau export PDF, maupun pagination engine lengkap. Fondasi pagination berbasis tinggi blok dari host sudah tersedia; pemecahan baris paragraf dan aturan layout kompleks belum tersedia.
 - Seleksi lintas section untuk blok teks tingkat atas pada body didukung dalam batas planner; seleksi lintas header/body/footer dan struktur bersarang lintas section tetap belum didukung.
 - Clipboard struktural gambar/tabel serta impor HTML campuran paragraf-gambar-tabel tersedia dalam cakupan konservatif; fidelitas penuh HTML/CSS, tabel kompleks, dan impor gambar biner otomatis belum didukung.
 - Pengujian IME sistem operasi nyata dan audit screen reader manual masih perlu dilakukan.

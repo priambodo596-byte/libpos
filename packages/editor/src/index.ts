@@ -189,3 +189,4 @@ export function getTextBlocks(state:EditorState):readonly {id:string;type:string
 
 export * from "./interaction";
 export * from "./browser";
+export * from "./pagination";

@@ -1,0 +1,60 @@
+import { describe, expect, it } from "vitest";
+import { createDocument, createNodeFactory, createSequentialIdGenerator, defaultPageSetup } from "@convetlib/core";
+import { paginateDocument } from "../src/pagination";
+
+function smallPage() {
+  return {
+    size: { width: 1000, height: 1000 },
+    orientation: "portrait" as const,
+    margins: { top: 100, right: 100, bottom: 100, left: 100, header: 40, footer: 40 },
+  };
+}
+
+describe("block pagination foundation", () => {
+  it("flows measured top-level blocks to a new page when the content area is full", () => {
+    const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
+    const doc = createDocument({ ids, page: smallPage(), content: [f.paragraph("A"), f.paragraph("B"), f.paragraph("C")] });
+    const heights = new Map(doc.sections[0]!.content.map((block, i) => [block.id, [300, 300, 250][i]!]));
+    const result = paginateDocument(doc, block => heights.get(block.id)!);
+    expect(result.totalPages).toBe(2);
+    expect(result.pages.map(page => page.blocks.map(block => block.blockId))).toEqual([
+      [doc.sections[0]!.content[0]!.id, doc.sections[0]!.content[1]!.id],
+      [doc.sections[0]!.content[2]!.id],
+    ]);
+    expect(result.pages[1]).toMatchObject({ pageNumber: 2, sectionPageNumber: 2, contentWidth: 800, contentHeight: 800, usedHeight: 250 });
+    expect(result.pages[1]!.blocks[0]!.y).toBe(0);
+  });
+
+  it("honors explicit page breaks and does not create an extra blank page at the end", () => {
+    const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
+    const doc = createDocument({ ids, page: smallPage(), content: [f.paragraph("A"), f.pageBreak(), f.paragraph("B"), f.pageBreak()] });
+    const result = paginateDocument(doc, () => 100);
+    expect(result.pages.map(page => page.blocks.map(block => block.type))).toEqual([["paragraph"], ["paragraph"]]);
+  });
+
+  it("starts each document section on its own page and resets the section page number", () => {
+    const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
+    const doc = createDocument({ ids, page: smallPage(), content: [f.paragraph("A")] });
+    doc.sections.push({ id: ids(), page: { ...defaultPageSetup(), size: { width: 2000, height: 3000 }, margins: { top: 200, right: 200, bottom: 200, left: 200, header: 80, footer: 80 } }, content: [f.paragraph("B")] });
+    const result = paginateDocument(doc, () => 100);
+    expect(result.pages.map(page => page.sectionPageNumber)).toEqual([1, 1]);
+    expect(result.pages.map(page => page.contentWidth)).toEqual([800, 1600]);
+  });
+
+  it("reports an oversized indivisible block instead of silently splitting it", () => {
+    const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
+    const doc = createDocument({ ids, page: smallPage(), content: [f.paragraph("too tall"), f.paragraph("next")] });
+    const result = paginateDocument(doc, block => block.id === doc.sections[0]!.content[0]!.id ? 900 : 100);
+    expect(result.pages[0]).toMatchObject({ overflow: true, usedHeight: 900 });
+    expect(result.pages[0]!.blocks).toHaveLength(1);
+    expect(result.pages[1]!.overflow).toBe(false);
+  });
+
+  it("rejects invalid page geometry and invalid measured heights", () => {
+    const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
+    const doc = createDocument({ ids, page: smallPage(), content: [f.paragraph("A")] });
+    expect(() => paginateDocument(doc, () => Number.NaN)).toThrow(/Invalid measured height/);
+    doc.sections[0]!.page.margins.left = 900;
+    expect(() => paginateDocument(doc, () => 10)).toThrow(/positive content area/);
+  });
+});
