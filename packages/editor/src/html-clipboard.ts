@@ -72,7 +72,16 @@ export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload
       if (blockedTags.has(t)) { blocked = voidTags.has(t) ? undefined : t; continue; }
       if (t === "table") { flushParagraph(); flushTable(); table = { type: "table", id: id(), content: [] }; continue; }
       if (t === "tr" && table) { flushRow(); row = { type: "tableRow", id: id(), content: [] }; continue; }
-      if ((t === "td" || t === "th") && row) { flushCell(); cell = { type: "tableCell", id: id(), attrs: { colspan: 1, rowspan: 1 }, content: [] }; cellRuns = []; continue; }
+      if ((t === "td" || t === "th") && row) {
+        flushCell();
+        const boundedSpan = (name: "colspan" | "rowspan") => {
+          const raw = Number(attr(token, name) ?? 1);
+          return Number.isInteger(raw) && raw >= 1 && raw <= 100 ? raw : 1;
+        };
+        cell = { type: "tableCell", id: id(), attrs: { colspan: boundedSpan("colspan"), rowspan: boundedSpan("rowspan") }, content: [] };
+        cellRuns = [];
+        continue;
+      }
       if (t === "img") {
         const src = attr(token, "src");
         if (src && /^(https?:\/\/|data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(src)) {

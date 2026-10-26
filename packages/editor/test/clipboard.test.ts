@@ -33,6 +33,18 @@ describe("clipboard interoperability", () => {
     expect(payload?.nodes?.[1]).toMatchObject({ type: "image", attrs: { src: "https://example.com/pic.png" } });
     expect(payload?.nodes?.[2]).toMatchObject({ type: "table", content: [{ type: "tableRow" }] });
   });
+  it("preserves valid HTML table spans and normalizes invalid spans", () => {
+    const payload = htmlToClipboardPayload('<table><tr><td colspan="2" rowspan="3">Merged</td><td colspan="0">Fallback</td><td rowspan="999">Bounded</td></tr></table>');
+    const table = payload?.nodes?.[0];
+    const row = table?.content?.[0];
+    const rowContent = row && "content" in row ? row.content : undefined;
+    const cells: import("@convetlib/core").BlockNode[] = rowContent?.filter((node): node is import("@convetlib/core").BlockNode => "type" in node && node.type === "tableCell") ?? [];
+    expect(cells.map(cell => cell.attrs)).toEqual([
+      { colspan: 2, rowspan: 3 },
+      { colspan: 1, rowspan: 1 },
+      { colspan: 1, rowspan: 1 }
+    ]);
+  });
   it("pastes a validated image node without flattening it to text", async () => {
     const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
     const ed = await createEditor({ document: createDocument({ ids, content: [f.paragraph("before after")] }), ids });
