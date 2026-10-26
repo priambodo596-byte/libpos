@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDocument, createEditor, createNodeFactory, createSequentialIdGenerator } from "@convetlib/core";
 import { registerEditingCommands, setSelection } from "../src/index";
-import { copySelection, htmlToClipboardPayload, pasteClipboardPayload, type ClipboardPayload } from "../src/clipboard";
+import { copySelection, cutSelection, htmlToClipboardPayload, pasteClipboardPayload, type ClipboardPayload } from "../src/clipboard";
 
 describe("clipboard interoperability", () => {
   it("imports paragraphs, headings, and supported nested inline marks", () => {
@@ -88,4 +88,21 @@ describe("clipboard interoperability", () => {
     ]);
     await ed.destroy();
   });
+  it("copies and cuts a supported selection spanning top-level content across sections", async () => {
+    const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
+    const doc = createDocument({ ids, content: [f.paragraph("Alpha")] });
+    const firstSection = doc.sections[0]!;
+    doc.sections.push({ ...firstSection, id: ids(), content: [f.paragraph("Beta")] });
+    const ed = await createEditor({ document: doc, ids });
+    registerEditingCommands(ed, { ids });
+    const [first] = ed.state.document.sections[0]!.content;
+    const [second] = ed.state.document.sections[1]!.content;
+    setSelection(ed, { anchor: { blockId: first!.id, offset: 2 }, head: { blockId: second!.id, offset: 2 } }, { ids });
+    expect(copySelection(ed)?.text).toBe("pha\nBe");
+    expect(cutSelection(ed)?.text).toBe("pha\nBe");
+    expect((ed.state.document.sections[0]!.content[0]!.content ?? []).map(n => "text" in n ? n.text : "").join("")).toBe("Al");
+    expect((ed.state.document.sections[1]!.content[0]!.content ?? []).map(n => "text" in n ? n.text : "").join("")).toBe("ta");
+    await ed.destroy();
+  });
+
 });

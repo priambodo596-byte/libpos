@@ -6,8 +6,9 @@ import type { BlockNode, EditorState, Inline, Mark, Operation, Position } from "
  * (list items, blockquotes, table cells, nested lists, ...).
  *
  * Rules implemented by `planCrossBlockEdit`:
- *  - Both selection endpoints must be text blocks in the same section and slot
- *    (content, header or footer). Anything else is unsupported and yields no plan.
+ *  - Within a section, endpoints may be text blocks in the same slot (content, header or footer).
+ *  - Across sections, the bounded initial implementation supports top-level content text blocks only;
+ *    cross-section tables, nested containers, and header/body/footer spans are rejected safely.
  *  - Text inside the selection is deleted at both ends. Blocks fully inside the selection are
  *    removed, except table rows/cells, which are emptied instead so the table grid survives.
  *  - The remainder of the end block is merged into the start block only when that keeps the
@@ -164,13 +165,61 @@ function appendSuffixOps(from: BlockNode, offsetInFrom: number, into: string, in
   return ops;
 }
 
+function planCrossSectionEdit(state: EditorState, options: CrossBlockOptions): CrossBlockPlan | undefined {
+  const sel = state.selection;
+  if (!sel) return undefined;
+  const la = locateBlock(state, sel.anchor.blockId), lh = locateBlock(state, sel.head.blockId);
+  if (!la || !lh || la.slot !== 'content' || lh.slot !== 'content' || la.sectionIndex === lh.sectionIndex) return undefined;
+  if (la.chain.length !== 1 || lh.chain.length !== 1) return undefined;
+  const a = la.chain[0]!, h = lh.chain[0]!;
+  if (!isTextBlock(a) || !isTextBlock(h)) return undefined;
+  const forward = la.sectionIndex < lh.sectionIndex;
+  const startLoc = forward ? la : lh, endLoc = forward ? lh : la;
+  const startPos = forward ? sel.anchor : sel.head, endPos = forward ? sel.head : sel.anchor;
+  const start = startLoc.chain[0]!, end = endLoc.chain[0]!;
+  const startSectionIndex = startLoc.sectionIndex, endSectionIndex = endLoc.sectionIndex;
+  const startSection = state.document.sections[startSectionIndex]!, endSection = state.document.sections[endSectionIndex]!;
+  const startIndex = startSection.content.findIndex(n => n.id === start.id);
+  const endIndex = endSection.content.findIndex(n => n.id === end.id);
+  if (startIndex < 0 || endIndex < 0) return undefined;
+  // This initial cross-section planner intentionally supports only top-level text blocks.
+  // Reject tables, lists, and other structural nodes rather than risk deleting their containers.
+  const involvedStart = startSection.content.slice(startIndex);
+  const involvedEnd = endSection.content.slice(0, endIndex + 1);
+  if (![...involvedStart, ...involvedEnd].every(isTextBlock)) return undefined;
+  for (let i = startSectionIndex + 1; i < endSectionIndex; i++) {
+    if (!state.document.sections[i]!.content.length || !state.document.sections[i]!.content.every(isTextBlock)) return undefined;
+  }
+  const from = startPos.offset, to = endPos.offset;
+  if (!Number.isInteger(from) || from < 0 || from > textLength(start) || !Number.isInteger(to) || to < 0 || to > textLength(end)) return undefined;
+  const ops: Operation[] = [];
+  if (from < textLength(start)) ops.push({ type: 'delete_text', blockId: start.id, from, to: textLength(start) });
+  if (to > 0) ops.push({ type: 'delete_text', blockId: end.id, from: 0, to });
+  const inserted = options.insertText ?? '';
+  if (inserted) ops.push({ type: 'insert_text', at: { blockId: start.id, offset: from }, text: inserted });
+  // Remove fully selected blocks from the start and end sections.
+  for (const block of startSection.content.slice(startIndex + 1)) ops.push({ type: 'remove_block', id: block.id });
+  for (const block of endSection.content.slice(0, endIndex)) ops.push({ type: 'remove_block', id: block.id });
+  // Preserve each intermediate section and its stable first block; empty it to a valid paragraph.
+  for (let i = startSectionIndex + 1; i < endSectionIndex; i++) {
+    const content = state.document.sections[i]!.content;
+    const keep = content[0]!;
+    if (textLength(keep) > 0) ops.push({ type: 'delete_text', blockId: keep.id, from: 0, to: textLength(keep) });
+    if (keep.type !== 'paragraph') ops.push({ type: 'set_node_type', id: keep.id, nodeType: 'paragraph', attrs: {} });
+    for (const block of content.slice(1)) ops.push({ type: 'remove_block', id: block.id });
+  }
+  return { ops, caret: { blockId: start.id, offset: from + inserted.length }, joined: false };
+}
+
 /** Builds the operations that replace the current multi-block selection, or undefined if unsupported. */
 export function planCrossBlockEdit(state: EditorState, options: CrossBlockOptions): CrossBlockPlan | undefined {
   const sel = state.selection;
   if (!sel || sel.anchor.blockId === sel.head.blockId) return undefined;
   const la = locateBlock(state, sel.anchor.blockId);
   const lh = locateBlock(state, sel.head.blockId);
-  if (!la || !lh || la.sectionIndex !== lh.sectionIndex || la.slot !== lh.slot) return undefined;
+  if (!la || !lh) return undefined;
+  if (la.sectionIndex !== lh.sectionIndex) return planCrossSectionEdit(state, options);
+  if (la.slot !== lh.slot) return undefined;
   if (!isTextBlock(la.chain[la.chain.length - 1]!) || !isTextBlock(lh.chain[lh.chain.length - 1]!)) return undefined;
 
   // First level at which the two ancestor chains differ. Text blocks are leaves, so neither

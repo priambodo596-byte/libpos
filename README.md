@@ -37,6 +37,7 @@ convetlib adalah library/SDK editor dokumen berbasis TypeScript yang dirancang a
 
 - Perintah insert/replacement teks, delete, split paragraph, paragraph/heading conversion, alignment, dan bold/italic/underline/strike.
 - Pengeditan lintas blok yang didukung planner, termasuk sejumlah struktur bersarang.
+- Penggantian seleksi lintas section untuk blok teks tingkat atas pada body dokumen; header/footer dan struktur bersarang lintas section ditolak secara aman.
 - Perintah penghapusan baris/kolom tabel dengan guard untuk struktur yang tidak aman.
 - Keyboard shortcut helper, clipboard plain/rich text utilities, HTML importer konservatif, serta composition/IME utilities.
 - Browser DOM binder untuk menghubungkan event input dan selection ke model.
@@ -58,6 +59,7 @@ Example:
 import { renderTemplate, escapeHtml } from "@convetlib/templates";
 const result = renderTemplate("Nomor {{ surat.nomor }}", { surat: { nomor: "001/2026" } }, { strict: true, escape: escapeHtml });
 ```
+
 ## Prasyarat
 
 Pastikan perangkat pengembangan memiliki:

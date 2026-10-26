@@ -93,6 +93,24 @@ describe("cross-parent selection: lists", () => {
     expect(ed.state.selection?.head).toEqual({ blockId: blocks[1]!.id, offset: 0 });
     await ed.destroy();
   });
+  it("preserves intermediate sections while clearing their selected text blocks", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const first = f.paragraph("start"), middleA = f.heading(2, "middle"), middleB = f.paragraph("also middle"), last = f.paragraph("finish");
+    const doc = createDocument({ ids, content: [first] });
+    doc.sections.push(createSection([middleA, middleB], { ids }));
+    doc.sections.push(createSection([last], { ids }));
+    const ed = await createEditor({ document: doc, ids });
+    registerEditingCommands(ed, { ids });
+    select(ed, ids, at(first, 2), at(last, 2));
+    expect(ed.commands.execute("text.deleteBackward").ok).toBe(true);
+    expect(ed.state.document.sections).toHaveLength(3);
+    expect(ed.state.document.sections[1]!.content).toHaveLength(1);
+    expect(ed.state.document.sections[1]!.content[0]!.type).toBe("paragraph");
+    expect((ed.state.document.sections[1]!.content[0]!.content ?? []).map((x) => "text" in x ? x.text : "").join("")).toBe("");
+    await ed.destroy();
+  });
+
 });
 
 describe("cross-parent selection: mixed nesting", () => {
@@ -231,7 +249,7 @@ describe("cross-parent selection: undo and limits", () => {
     await ed.destroy();
   });
 
-  it("refuses a selection that spans sections and leaves the document untouched", async () => {
+  it("replaces a supported selection across top-level text blocks in separate sections", async () => {
     const ids = createSequentialIdGenerator();
     const f = createNodeFactory(ids);
     const first = f.paragraph("one"), second = f.paragraph("two");
@@ -240,16 +258,14 @@ describe("cross-parent selection: undo and limits", () => {
     const ed = await createEditor({ document: doc, ids });
     registerEditingCommands(ed, { ids });
     select(ed, ids, at(first, 1), at(second, 1));
-    const snapshot = stable(ed);
-    for (const [id, args] of [["text.insert", { text: "x" }], ["text.deleteBackward", undefined], ["text.deleteForward", undefined], ["block.split", undefined]] as const) {
-      expect(ed.commands.can(id, args)).toBe(false);
-      expect(ed.commands.execute(id, args).ok).toBe(false);
-    }
-    expect(stable(ed)).toBe(snapshot);
+    expect(ed.commands.can("text.insert", { text: "x" })).toBe(true);
+    expect(ed.commands.execute("text.insert", { text: "x" }).ok).toBe(true);
+    expect(shapes(ed)).toEqual(["paragraph:ox"]);
+    expect(ed.state.document.sections[1]!.content.map((n) => `${n.type}:${(n.content ?? []).map((x) => "text" in x ? x.text : "").join("")}`)).toEqual(["paragraph:wo"]);
     await ed.destroy();
   });
 
-  it("run() itself refuses unsupported spans, not only canRun (commands can be invoked directly)", async () => {
+  it("direct command run supports the same cross-section text replacement", async () => {
     const ids = createSequentialIdGenerator();
     const f = createNodeFactory(ids);
     const first = f.paragraph("one"), second = f.paragraph("two");
@@ -258,11 +274,10 @@ describe("cross-parent selection: undo and limits", () => {
     const ed = await createEditor({ document: doc, ids });
     select(ed, ids, at(first, 1), at(second, 1));
     const specs = createEditingCommands({ ids });
-    for (const id of ["text.insert", "text.deleteBackward", "text.deleteForward", "block.split"]) {
-      const spec = specs.find((s) => s.id === id)!;
-      const outcome = spec.run({ state: ed.state }, id === "text.insert" ? { text: "x" } : undefined);
-      expect(outcome.ok, id).toBe(false);
-    }
+    const spec = specs.find((s) => s.id === "text.insert")!;
+    const outcome = spec.run({ state: ed.state }, { text: "x" });
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) expect(outcome.transaction?.ops).toEqual(expect.arrayContaining([expect.objectContaining({ type: "insert_text", text: "x" })]));
     await ed.destroy();
   });
 

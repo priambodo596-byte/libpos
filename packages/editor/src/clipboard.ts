@@ -40,10 +40,15 @@ function toHtml(blocks: readonly ClipboardBlock[]): string {
 function selectedBlocks(state: EditorState): ClipboardBlock[] | undefined {
   const s=state.selection;if(!s||(s.anchor.blockId===s.head.blockId&&s.anchor.offset===s.head.offset))return undefined;
   const a=locateBlock(state,s.anchor.blockId),h=locateBlock(state,s.head.blockId);
-  if(!a||!h||a.sectionIndex!==h.sectionIndex||a.slot!==h.slot)return undefined;
+  if(!a||!h||a.slot!==h.slot)return undefined;
   if(s.anchor.blockId!==s.head.blockId&&!planCrossBlockEdit(state,{ids:()=>"clipboard-probe"}))return undefined;
-  const section=state.document.sections[a.sectionIndex]!,root=a.slot==="header"?section.header??[]:a.slot==="footer"?section.footer??[]:section.content;
-  const all=textBlocks(root),ai=all.findIndex(b=>b.id===s.anchor.blockId),hi=all.findIndex(b=>b.id===s.head.blockId);
+  const all: BlockNode[] = [];
+  for (let si = 0; si < state.document.sections.length; si++) {
+    const section = state.document.sections[si]!;
+    const root = a.slot === "header" ? section.header ?? [] : a.slot === "footer" ? section.footer ?? [] : section.content;
+    all.push(...textBlocks(root));
+  }
+  const ai=all.findIndex(b=>b.id===s.anchor.blockId),hi=all.findIndex(b=>b.id===s.head.blockId);
   if(ai<0||hi<0)return undefined;const start=Math.min(ai,hi),end=Math.max(ai,hi),forward=ai<=hi;
   const from=forward?s.anchor.offset:s.head.offset,to=forward?s.head.offset:s.anchor.offset,out:ClipboardBlock[]=[];
   for(let i=start;i<=end;i++){const b=all[i]!,len=blockText(b).length,lo=i===start?from:0,hiOffset=i===end?to:len;if(lo<0||hiOffset<lo||hiOffset>len)return undefined;const runs=runsForRange(b,lo,hiOffset);if(!runs)return undefined;const type=b.type==="heading"||b.type==="codeBlock"?b.type:"paragraph";out.push({type,...(b.attrs?{attrs:b.attrs}:{}),runs});}
