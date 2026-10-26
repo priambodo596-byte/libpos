@@ -79,20 +79,36 @@ export function paginateDocument(document: DocumentJSON, measureBlock: MeasureBl
       overflow = false;
     };
 
-    section.content.forEach((block, sourceIndex) => {
-      if (block.type === "pageBreak") {
-        if (blocks.length > 0) flushPage();
-        return;
-      }
+    const measured = section.content.map((block, sourceIndex) => {
+      if (block.type === "pageBreak") return { block, sourceIndex, height: 0 };
       const height = measureBlock(block, { section, availableWidth: contentWidth, pageSetup: setup });
       if (!Number.isFinite(height) || height < 0) {
         throw new RangeError(`Invalid measured height for block ${block.id}: ${height}`);
       }
-      if (blocks.length > 0 && usedHeight + height > contentHeight) flushPage();
+      return { block, sourceIndex, height };
+    });
+
+    for (let index = 0; index < measured.length; index += 1) {
+      const current = measured[index]!;
+      const { block, sourceIndex, height } = current;
+      if (block.type === "pageBreak") {
+        if (blocks.length > 0) flushPage();
+        continue;
+      }
+
+      const next = measured[index + 1];
+      const keepWithNext = block.attrs?.keepWithNext === true;
+      const pairHeight = next && next.block.type !== "pageBreak" ? height + next.height : height;
+      const pairFitsPage = pairHeight <= contentHeight;
+      const pairWouldOverflow = usedHeight + pairHeight > contentHeight;
+      if (blocks.length > 0 && (usedHeight + height > contentHeight || (keepWithNext && pairFitsPage && pairWouldOverflow))) {
+        flushPage();
+      }
+
       blocks.push({ blockId: block.id, type: block.type, y: usedHeight, height, sourceIndex });
       usedHeight += height;
       if (height > contentHeight) overflow = true;
-    });
+    }
 
     if (blocks.length > 0 || sectionPageNumber === 0) flushPage();
   });

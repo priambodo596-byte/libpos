@@ -50,6 +50,33 @@ describe("block pagination foundation", () => {
     expect(result.pages[1]!.overflow).toBe(false);
   });
 
+  it("keeps a heading with its following block when the pair fits on a fresh page", () => {
+    const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
+    const heading = f.heading(2, "Section title");
+    heading.attrs = { ...heading.attrs, keepWithNext: true };
+    const body = f.paragraph("Section body");
+    const doc = createDocument({ ids, page: smallPage(), content: [f.paragraph("Previous content"), heading, body] });
+    const heights = new Map([[doc.sections[0]!.content[0]!.id, 500], [heading.id, 200], [body.id, 200]]);
+    const result = paginateDocument(doc, block => heights.get(block.id)!);
+    expect(result.pages).toHaveLength(2);
+    expect(result.pages[0]!.blocks.map(block => block.blockId)).toEqual([doc.sections[0]!.content[0]!.id]);
+    expect(result.pages[1]!.blocks.map(block => block.blockId)).toEqual([heading.id, body.id]);
+  });
+
+  it("does not move a keep-with-next pair when it cannot fit on any page", () => {
+    const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
+    const heading = f.heading(2, "Large title");
+    heading.attrs = { ...heading.attrs, keepWithNext: true };
+    const body = f.paragraph("Large content");
+    const doc = createDocument({ ids, page: smallPage(), content: [heading, body] });
+    const heights = new Map([[heading.id, 500], [body.id, 400]]);
+    const result = paginateDocument(doc, block => heights.get(block.id)!);
+    expect(result.pages).toHaveLength(2);
+    expect(result.pages[0]!.blocks[0]!.blockId).toBe(heading.id);
+    expect(result.pages[0]!.overflow).toBe(false);
+    expect(result.pages[1]!.blocks[0]!.blockId).toBe(body.id);
+  });
+
   it("rejects invalid page geometry and invalid measured heights", () => {
     const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
     const doc = createDocument({ ids, page: smallPage(), content: [f.paragraph("A")] });

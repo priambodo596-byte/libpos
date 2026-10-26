@@ -39,7 +39,7 @@ convetlib adalah library/SDK editor dokumen berbasis TypeScript yang dirancang a
 - Pengeditan lintas blok yang didukung planner, termasuk sejumlah struktur bersarang.
 - Penggantian seleksi lintas section untuk blok teks tingkat atas pada body dokumen; header/footer dan struktur bersarang lintas section ditolak secara aman.
 - Perintah penghapusan baris/kolom tabel dengan guard untuk struktur yang tidak aman.
-- Keyboard shortcut helper, clipboard plain/rich/structural utilities, HTML importer konservatif untuk teks dan urutan paragraf-gambar-tabel sederhana, fondasi pagination berbasis pengukuran host, serta composition/IME utilities.
+- Keyboard shortcut helper, clipboard plain/rich/structural utilities, HTML importer konservatif untuk teks dan urutan paragraf-gambar-tabel sederhana, fondasi pagination berbasis pengukuran host dengan dukungan `keepWithNext`, serta composition/IME utilities.
 - Browser DOM binder untuk menghubungkan event input dan selection ke model.
 
 ### `@convetlib/ui`
@@ -415,3 +415,4 @@ Package di dalam monorepo saat ini menyatakan `UNLICENSED`. Sebelum distribusi i
 5. Jalankan `pnpm run verify` dan browser matrix pada lingkungan CI yang bersih.
 
 Sampai keputusan tersebut dibuat, anggap repository ini sebagai source pengembangan internal dan jangan mempublikasikan package ke registry publik.
+
