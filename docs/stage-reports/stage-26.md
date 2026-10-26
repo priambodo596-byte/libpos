@@ -14,7 +14,7 @@
 
 - Playground production build: passed.
 - Local server: `http://127.0.0.1:5173/` returned HTTP 200 and the new controls were present in served HTML.
-- Full workspace verification: running after implementation; record the final result before release.
+- Full workspace verification (`pnpm run verify`): passed; build and typecheck succeeded for all six packages and all 199 tests passed (core 98, editor 73, DOCX 12, PDF 9, templates 6, UI 1).
 
 ## Manual checks
 
