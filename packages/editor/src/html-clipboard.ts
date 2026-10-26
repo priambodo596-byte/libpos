@@ -1,4 +1,4 @@
-import { defaultIdGenerator, type BlockNode } from "@convetlib/core";
+import { defaultIdGenerator, type BlockNode, type Mark } from "@convetlib/core";
 import type { ClipboardPayload, ClipboardRun } from "./clipboard";
 
 const voidTags = new Set(["br", "img", "hr", "meta", "link", "input"]);
@@ -12,16 +12,21 @@ function attr(tag: string, name: string): string | undefined {
   return m ? entity(m[1] ?? m[2] ?? m[3] ?? "") : undefined;
 }
 function id(): string { return defaultIdGenerator(); }
-function textNode(value: string): BlockNode { return { type: "paragraph", id: id(), content: value ? [{ type: "text", text: value }] : [] }; }
+function safeLinkHref(value: string): string | undefined {
+  const href = value.trim();
+  if (!href || /[\u0000-\u0020\u007f]/.test(href)) return undefined;
+  if (/^(?:https?:|mailto:|tel:)/i.test(href)) return href;
+  return undefined;
+}
 
 /** Parses only a small allow-list of structural HTML. No style/event attributes are retained. */
 export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload | undefined {
-  if (!/<\s*(?:table|ul|ol)\b/i.test(html) && !/<\s*img\b[^>]*\bsrc\s*=\s*(["']https?:\/\/|["']data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(html)) return undefined;
+  if (!/<\s*(?:table|ul|ol|a)\b/i.test(html) && !/<\s*img\b[^>]*\bsrc\s*=\s*(["']https?:\/\/|["']data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(html)) return undefined;
   const tokens = html.match(/<!--[\s\S]*?-->|<[^>]*>|[^<]+/g) ?? [];
   const nodes: BlockNode[] = [];
   let paragraphRuns: ClipboardRun[] = [];
   let paragraphTag = "p";
-  let marks: Array<"bold" | "italic" | "underline" | "strike" | "code"> = [];
+  let marks: Array<"bold" | "italic" | "underline" | "strike" | "code" | Mark> = [];
   let blocked: string | undefined;
   let table: BlockNode | undefined;
   let row: BlockNode | undefined;
@@ -34,7 +39,7 @@ export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload
     if (paragraphRuns.length) {
       const type = paragraphTag === "pre" ? "codeBlock" : /^h[1-6]$/.test(paragraphTag) ? "heading" : "paragraph";
       const attrs = /^h[1-6]$/.test(paragraphTag) ? { level: Number(paragraphTag.slice(1)) } : undefined;
-      const paragraph: BlockNode = { type, id: id(), ...(attrs ? { attrs } : {}), content: paragraphRuns.filter(r => r.text).map(r => ({ type: "text", text: r.text, ...(r.marks.length ? { marks: r.marks.map(m => ({ type: m.type })) } : {}) })) };
+      const paragraph: BlockNode = { type, id: id(), ...(attrs ? { attrs } : {}), content: paragraphRuns.filter(r => r.text).map(r => ({ type: "text", text: r.text, ...(r.marks.length ? { marks: r.marks.map(m => typeof m === "string" ? ({ type: m }) : m) } : {}) })) };
       const parentItem = itemStack[itemStack.length - 1];
       if (parentItem) parentItem.content?.push(paragraph); else nodes.push(paragraph);
     }
@@ -43,7 +48,7 @@ export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload
   };
   const flushCell = () => {
     if (!cell) return;
-    if (cellRuns.length) cell.content = [{ type: "paragraph", id: id(), content: cellRuns.map(r => ({ type: "text", text: r.text, ...(r.marks.length ? { marks: r.marks.map(m => ({ type: m.type })) } : {}) })) }];
+    if (cellRuns.length) cell.content = [{ type: "paragraph", id: id(), content: cellRuns.map(r => ({ type: "text", text: r.text, ...(r.marks.length ? { marks: r.marks.map(m => typeof m === "string" ? ({ type: m }) : m) } : {}) })) }];
     if (!cell.content?.length) cell.content = [{ type: "paragraph", id: id(), content: [] }];
     row?.content?.push(cell);
     cell = undefined; cellRuns = [];
@@ -63,6 +68,7 @@ export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload
       else if (t === "tr") flushRow();
       else if (t === "table") flushTable();
       else if (blockTags.has(t)) flushParagraph();
+      else if (t === "a") marks = marks.filter(m => typeof m === "string" || m.type !== "link");
       else if (["b", "strong"].includes(t)) marks = marks.filter(m => m !== "bold");
       else if (["i", "em"].includes(t)) marks = marks.filter(m => m !== "italic");
       else if (t === "u") marks = marks.filter(m => m !== "underline");
@@ -98,6 +104,11 @@ export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload
         cellRuns = [];
         continue;
       }
+      if (t === "a") {
+        const href = safeLinkHref(attr(token, "href") ?? "");
+        if (href) marks.push({ type: "link", attrs: { href, ...(attr(token, "title") ? { title: attr(token, "title")! } : {}) } });
+        continue;
+      }
       if (t === "img") {
         const src = attr(token, "src");
         if (src && /^(https?:\/\/|data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(src)) {
@@ -109,7 +120,7 @@ export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload
         }
         continue;
       }
-      if (t === "br") { (cell ? cellRuns : paragraphRuns).push({ text: "\n", marks: marks.map(type => ({ type })) }); continue; }
+      if (t === "br") { (cell ? cellRuns : paragraphRuns).push({ text: "\n", marks: marks.map(m => typeof m === "string" ? ({ type: m }) : m) }); continue; }
       if (blockTags.has(t)) { flushParagraph(); paragraphTag = t; continue; }
       const mark = t === "b" || t === "strong" ? "bold" : t === "i" || t === "em" ? "italic" : t === "u" ? "underline" : ["s", "strike", "del"].includes(t) ? "strike" : t === "code" ? "code" : undefined;
       if (mark && !marks.includes(mark)) marks.push(mark);
@@ -119,7 +130,7 @@ export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload
     const value = entity(token);
     if (!value) continue;
     const target = cell ? cellRuns : paragraphRuns;
-    target.push({ text: value, marks: marks.map(type => ({ type })) });
+    target.push({ text: value, marks: marks.map(m => typeof m === "string" ? ({ type: m }) : m) });
   }
   flushParagraph();
   flushTable();

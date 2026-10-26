@@ -33,6 +33,15 @@ describe("clipboard interoperability", () => {
     expect(payload?.nodes?.[1]).toMatchObject({ type: "image", attrs: { src: "https://example.com/pic.png" } });
     expect(payload?.nodes?.[2]).toMatchObject({ type: "table", content: [{ type: "tableRow" }] });
   });
+  it("preserves safe HTML links and drops unsafe link schemes", () => {
+    const payload = htmlToClipboardPayload('<p><a href="https://example.com/docs" title="Reference"><strong>Safe link</strong></a> <a href="javascript:alert(1)">unsafe</a> <a href="//evil.example">relative</a></p><table><tr><td>trigger structural import</td></tr></table>');
+    const paragraph = payload?.nodes?.[0];
+    expect(paragraph?.content?.[0]).toMatchObject({ type: "text", text: "Safe link", marks: [{ type: "link", attrs: { href: "https://example.com/docs", title: "Reference" } }, { type: "bold" }] });
+    expect(payload?.text).toContain("unsafe");
+    expect(JSON.stringify(payload?.nodes)).not.toContain("javascript:");
+    expect(JSON.stringify(payload?.nodes)).not.toContain("evil.example");
+  });
+
   it("imports ordered and nested HTML lists as semantic list nodes", () => {
     const payload = htmlToClipboardPayload('<ol start="3"><li>First</li><li>Second<ul><li><strong>Nested</strong></li></ul></li></ol>');
     expect(payload?.nodes?.[0]).toMatchObject({
