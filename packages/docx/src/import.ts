@@ -371,12 +371,15 @@ function blockFromElement(element: Element, relationships: Map<string, { target:
     const layout = attr(elements(tableProps ?? element, "tblLayout")[0], "type");
     if (layout === "fixed" || layout === "autofit") tableAttrs.layout = layout;
     const rows: BlockNode[] = [];
+    const verticalMerges = new Map<number, { cell: BlockNode; columns: number }>();
     for (const row of elements(element, "tr")) {
       const rowProps = elements(row, "trPr")[0];
       const rowHeight = attr(elements(rowProps ?? row, "trHeight")[0], "val");
       const rowAttrs: Record<string, string | number> = {};
       if (rowHeight && Number(rowHeight) > 0) rowAttrs.height = Number(rowHeight);
       const cells: BlockNode[] = [];
+      const nextVerticalMerges = new Map<number, { cell: BlockNode; columns: number }>();
+      let columnIndex = 0;
       for (const cell of elements(row, "tc")) {
         const cellProps = elements(cell, "tcPr")[0];
         const widthNode = elements(cellProps ?? cell, "tcW")[0];
@@ -385,7 +388,18 @@ function blockFromElement(element: Element, relationships: Map<string, { target:
         const attrs: Record<string, string | number> = {};
         if (cellWidth && cellWidthType !== "auto" && Number(cellWidth) > 0) attrs.width = Number(cellWidth);
         const gridSpan = attr(elements(cellProps ?? cell, "gridSpan")[0], "val");
-        if (gridSpan && Number(gridSpan) > 1) attrs.colspan = Number(gridSpan);
+        const span = gridSpan && Number.isInteger(Number(gridSpan)) && Number(gridSpan) > 1 && Number(gridSpan) <= 100 ? Number(gridSpan) : 1;
+        if (span > 1) attrs.colspan = span;
+        const verticalMerge = elements(cellProps ?? cell, "vMerge")[0];
+        const mergeValue = attr(verticalMerge, "val");
+        const previousMerge = verticalMerges.get(columnIndex);
+        if (verticalMerge && mergeValue !== "restart" && previousMerge) {
+          const previousRowspan = Number(previousMerge.cell.attrs?.rowspan ?? 1);
+          previousMerge.cell.attrs = { ...(previousMerge.cell.attrs ?? {}), rowspan: previousRowspan + 1 };
+          for (let offset = 0; offset < span; offset += 1) nextVerticalMerges.set(columnIndex + offset, previousMerge);
+          columnIndex += span;
+          continue;
+        }
         const vertical = attr(elements(cellProps ?? cell, "vAlign")[0], "val");
         if (vertical === "center" || vertical === "bottom" || vertical === "top") attrs.verticalAlign = vertical;
         const shade = attr(elements(cellProps ?? cell, "shd")[0], "fill");
@@ -405,8 +419,16 @@ function blockFromElement(element: Element, relationships: Map<string, { target:
           attrs[key] = `${width}px ${styles[borderValue ?? "single"] ?? "solid"} ${color}`;
         }
         const content = elements(cell, "p").map(p => makeParagraph(p, relationships, media, factory, styles, characterStyles));
-        cells.push(factory.block("tableCell", content.length ? content : [factory.paragraph()], attrs));
+        const cellNode = factory.block("tableCell", content.length ? content : [factory.paragraph()], attrs);
+        cells.push(cellNode);
+        if (verticalMerge && mergeValue === "restart") {
+          const merge = { cell: cellNode, columns: span };
+          for (let offset = 0; offset < span; offset += 1) nextVerticalMerges.set(columnIndex + offset, merge);
+        }
+        columnIndex += span;
       }
+      verticalMerges.clear();
+      for (const [column, merge] of nextVerticalMerges) verticalMerges.set(column, merge);
       if (cells.length) rows.push(factory.block("tableRow", cells, rowAttrs));
     }
     return rows.length ? factory.block("table", rows, tableAttrs) : undefined;

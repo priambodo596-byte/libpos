@@ -119,6 +119,20 @@ describe("DOCX export adapter", () => {
     expect(Schema.create().validate(imported)).toEqual([]);
   });
 
+  it("imports vertically merged Word cells as rowspans without duplicate continuation cells", async () => {
+    const zip = new JSZip();
+    zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:tbl><w:tr><w:tc><w:tcPr><w:vMerge w:val="restart"/></w:tcPr><w:p><w:r><w:t>Merged content</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Row one</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p/></w:tc><w:tc><w:p><w:r><w:t>Row two</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:sectPr/></w:body></w:document>`);
+    const bytes = await zip.generateAsync({ type: "uint8array" });
+    const imported = await importDocx(bytes);
+    const table = imported.sections[0]?.content[0] as BlockNode | undefined;
+    const firstRow = table?.content?.[0] as BlockNode | undefined;
+    const secondRow = table?.content?.[1] as BlockNode | undefined;
+    expect(firstRow?.content).toHaveLength(2);
+    expect(secondRow?.content).toHaveLength(1);
+    expect(firstRow?.content?.[0]).toMatchObject({ type: "tableCell", attrs: { rowspan: 2 }, content: [{ type: "paragraph", content: [{ type: "text", text: "Merged content" }] }] });
+    expect(Schema.create().validate(imported)).toEqual([]);
+  });
+
   it("imports safe hyperlinks and default section headers and footers", async () => {
     const zip = new JSZip();
     zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body><w:p><w:hyperlink r:id="rLink"><w:r><w:t>Open site</w:t></w:r></w:hyperlink></w:p><w:sectPr><w:headerReference w:type="default" r:id="rHeader"/><w:footerReference w:type="default" r:id="rFooter"/></w:sectPr></w:body></w:document>`);
