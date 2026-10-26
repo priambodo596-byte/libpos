@@ -46,6 +46,18 @@ convetlib adalah library/SDK editor dokumen berbasis TypeScript yang dirancang a
 - Model toolbar framework-neutral melalui `DEFAULT_TOOLBAR` dan `getToolbarState`.
 - Tidak mengharuskan React atau framework UI tertentu.
 
+### `@convetlib/templates`
+
+- Scalar placeholders with nested paths such as `{{ surat.nomor }}`.
+- Lists placeholder keys and reports missing values, with optional strict mode.
+- Optional escaping callback; template expressions are never evaluated.
+
+Example:
+
+```ts
+import { renderTemplate, escapeHtml } from "@convetlib/templates";
+const result = renderTemplate("Nomor {{ surat.nomor }}", { surat: { nomor: "001/2026" } }, { strict: true, escape: escapeHtml });
+```
 ## Prasyarat
 
 Pastikan perangkat pengembangan memiliki:
@@ -142,6 +154,8 @@ Jalankan perintah berikut dari root repository:
 | `pnpm --filter @convetlib/editor test:browser` | Browser integration default (Chromium) |
 | `pnpm --filter @convetlib/editor test:browser:all` | Browser integration Chromium, Firefox, dan WebKit |
 | `pnpm --filter @convetlib/ui test` | Unit test package UI |
+| `pnpm --filter @convetlib/templates test` | Unit test template/placeholder engine |
+| `pnpm --filter @convetlib/templates typecheck` | Typecheck template/placeholder engine |
 
 Setelah mengubah kode, jalankan minimal `pnpm run verify`. Jika perubahan menyentuh browser binder, DOM selection, clipboard, atau event input, jalankan juga browser integration tests.
 

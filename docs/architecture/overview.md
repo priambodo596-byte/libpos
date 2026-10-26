@@ -19,7 +19,7 @@ Status legend: **[S1]** = delivered in Stage 1, **[S2]** = delivered in Stage 2,
 | `@convetlib/layout` | Page layout engine (pagination, headers/footers, page numbers) | core | [planned: S5] |
 | `@convetlib/docx` | DOCX import/export, implements the `conversion` contracts | core | [planned: S5] |
 | `@convetlib/pdf` | PDF export, implements the `conversion` contracts | core, layout | [planned: S5] |
-| `@convetlib/templates` | Template / placeholder engine | core | [planned: S6] |
+| `@convetlib/templates` | Safe scalar template / placeholder renderer | none | [S4 foundation]; document binding planned |
 | `@convetlib/review` | Comments, suggestions, track changes, version history | core | [planned: S7] |
 | `@convetlib/testing` | Test utilities (fake storage/collab adapters, document builders) | core | [planned: S8, earlier where needed] |
 
