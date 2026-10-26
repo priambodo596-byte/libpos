@@ -141,6 +141,24 @@ describe("DOCX export adapter", () => {
     expect(textNode && "marks" in textNode ? textNode.marks?.some(mark => mark.type === "bold" || mark.type === "italic") : false).toBe(false);
   });
 
+  it("keeps images within the matching numbered list item", async () => {
+    const zip = new JSZip();
+    zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><w:body><w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="7"/></w:numPr></w:pPr><w:r><w:t>Item with image</w:t></w:r><w:r><w:drawing><wp:inline><wp:extent cx="304800" cy="304800"/><a:graphic><a:graphicData><a:blip r:embed="rImage"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="7"/></w:numPr></w:pPr><w:r><w:t>Following item</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`);
+    zip.file("word/numbering.xml", `<?xml version="1.0" encoding="UTF-8"?><w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/></w:lvl></w:abstractNum><w:num w:numId="7"><w:abstractNumId w:val="0"/></w:num></w:numbering>`);
+    zip.file("word/_rels/document.xml.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>`);
+    zip.file("word/media/image1.png", Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII="), c => c.charCodeAt(0)));
+    const bytes = await zip.generateAsync({ type: "uint8array" });
+    const imported = await importDocx(bytes);
+    const list = imported.sections[0]?.content[0];
+    expect(list?.type).toBe("orderedList");
+    expect(list?.content).toHaveLength(2);
+    const firstItem = list?.content?.[0] as BlockNode | undefined;
+    const secondItem = list?.content?.[1] as BlockNode | undefined;
+    expect(firstItem?.content?.map(node => node.type)).toEqual(["paragraph", "image"]);
+    expect(secondItem?.content?.map(node => node.type)).toEqual(["paragraph"]);
+    expect(imported.sections[0]?.content).toHaveLength(1);
+  });
+
   it("rejects invalid ZIP input and enforces the configured input limit", async () => {
     await expect(importDocx(new Uint8Array([1, 2, 3]))).rejects.toThrow();
     await expect(importDocx(new Uint8Array(32), { maxInputBytes: 16 })).rejects.toThrow(/16 bytes/);

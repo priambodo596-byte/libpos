@@ -427,7 +427,6 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
     const element = bodyElements[i]!;
     const list = element.localName === "p" ? numberingFor(element, numbering) : undefined;
     if (list) {
-      const listImages: BlockNode[] = [];
       const stack: Array<{ level: number; numId: string; listNode: BlockNode; lastItem?: BlockNode }> = [];
       while (i < bodyElements.length) {
         const candidate = bodyElements[i]!;
@@ -436,7 +435,8 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
         const level = Math.min(candidateList.level, stack.length);
         const levelInfo = candidateList.levelInfo;
         const paragraph = makeParagraph(candidate, relationships, media, factory, styles, characterStyles);
-        const item = factory.listItem([paragraph]);
+        // Keep block images inside their corresponding list item rather than moving them after the whole list.
+        const item = factory.listItem([paragraph, ...imagesFromParagraph(candidate, relationships, media, factory)]);
         stack.length = level + 1;
         const current = stack[level];
         let listNode: BlockNode;
@@ -452,11 +452,9 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
           } else content.push(listNode);
           stack[level] = { level, numId: candidateList.numId, listNode, lastItem: item };
         }
-        listImages.push(...imagesFromParagraph(candidate, relationships, media, factory));
         i += 1;
       }
       i -= 1;
-      content.push(...listImages);
       continue;
     }
     const node = blockFromElement(element, relationships, media, factory, styles, characterStyles);
