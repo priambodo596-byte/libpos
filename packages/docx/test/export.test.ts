@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import JSZip from "jszip";
-import { createDocument, createNodeFactory, createSequentialIdGenerator, type BlockNode } from "@convetlib/core";
+import { Schema, createDocument, createNodeFactory, createSequentialIdGenerator, type BlockNode } from "@convetlib/core";
 import { exportDocx, importDocx } from "../src/index";
 
 describe("DOCX export adapter", () => {
@@ -128,6 +128,7 @@ describe("DOCX export adapter", () => {
     const paragraph = imported.sections[0]?.content[0];
     expect(paragraph?.type).toBe("paragraph");
     expect(paragraph?.attrs).toMatchObject({ styleId: "BodyCustom", styleName: "Custom Body", styleBasedOn: "BaseText", align: "center", spacingBefore: 120, spacingAfter: 360, indentLeft: 720, indentRight: 360, firstLineIndent: 240 });
+    expect(Schema.create().validate(imported)).toEqual([]);
   });
 
   it("resolves character style inheritance and gives direct run properties precedence", async () => {
