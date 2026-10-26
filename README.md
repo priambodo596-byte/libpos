@@ -47,6 +47,13 @@ convetlib adalah library/SDK editor dokumen berbasis TypeScript yang dirancang a
 - Model toolbar framework-neutral melalui `DEFAULT_TOOLBAR` dan `getToolbarState`.
 - Tidak mengharuskan React atau framework UI tertentu.
 
+### `@convetlib/docx`
+
+- Semantic DOCX export through `exportDocx(document, options?)`.
+- Supports paragraphs, headings, basic text marks, page breaks, simple lists/tables, and page geometry.
+- Optional host-provided image resolver; remote images are not fetched implicitly.
+- DOCX import and pixel-perfect HTML/CSS conversion are not implemented yet.
+
 ### `@convetlib/templates`
 
 - Scalar placeholders with nested paths such as `{{ surat.nomor }}`.
@@ -341,19 +348,19 @@ Integrasi browser dan HTML importer memiliki cakupan yang konservatif. Uji HTML 
 | `@convetlib/react` | Adapter React | Direncanakan |
 | `@convetlib/web-components` | Adapter Web Components | Direncanakan |
 | `@convetlib/layout` | Pagination dan layout halaman | Direncanakan |
-| `@convetlib/docx` | Import/export DOCX | Direncanakan |
+| `@convetlib/docx` | Export DOCX semantik | Fondasi ekspor tersedia; import direncanakan |
 | `@convetlib/pdf` | Export PDF | Direncanakan |
-| `@convetlib/templates` | Template dan placeholder | Direncanakan |
+| `@convetlib/templates` | Template dan placeholder | Fondasi tersedia |
 | `@convetlib/review` | Comments, suggestions, track changes | Direncanakan |
 
-Package yang berstatus direncanakan pada tabel tersebut belum tersedia sebagai package implementasi dalam workspace saat ini. Jangan menambahkan import dari package tersebut sebelum implementasinya benar-benar tersedia.
+Package yang berstatus direncanakan pada tabel tersebut belum tersedia sebagai package implementasi dalam workspace saat ini. Package DOCX saat ini hanya menyediakan ekspor semantik dan belum menyediakan import DOCX.
 
 ## Batasan saat ini
 
 Repository ini sedang dikembangkan dan **belum merupakan editor dokumen enterprise lengkap yang siap dipakai produksi tanpa integrasi tambahan**.
 
 - Belum ada renderer UI lengkap atau adapter React/Web Components.
-- Belum ada import/export DOCX atau export PDF, maupun pagination engine lengkap. Fondasi pagination berbasis tinggi blok dari host sudah tersedia; pemecahan baris paragraf dan aturan layout kompleks belum tersedia.
+- DOCX export baru tersedia dalam cakupan semantik dasar; DOCX import, PDF export, dan pagination engine lengkap belum tersedia. Fondasi pagination berbasis tinggi blok dari host serta aturan `keepWithNext` sudah tersedia; pemecahan baris paragraf dan aturan layout kompleks belum tersedia.
 - Seleksi lintas section untuk blok teks tingkat atas pada body didukung dalam batas planner; seleksi lintas header/body/footer dan struktur bersarang lintas section tetap belum didukung.
 - Clipboard struktural gambar/tabel serta impor HTML campuran paragraf-gambar-tabel tersedia dalam cakupan konservatif; fidelitas penuh HTML/CSS, tabel kompleks, dan impor gambar biner otomatis belum didukung.
 - Pengujian IME sistem operasi nyata dan audit screen reader manual masih perlu dilakukan.
@@ -415,4 +422,3 @@ Package di dalam monorepo saat ini menyatakan `UNLICENSED`. Sebelum distribusi i
 5. Jalankan `pnpm run verify` dan browser matrix pada lingkungan CI yang bersih.
 
 Sampai keputusan tersebut dibuat, anggap repository ini sebagai source pengembangan internal dan jangan mempublikasikan package ke registry publik.
-

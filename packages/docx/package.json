@@ -1,0 +1,32 @@
+{
+  "name": "@convetlib/docx",
+  "version": "0.1.0-alpha.0",
+  "description": "DOCX export adapter for the convetlib document model.",
+  "type": "module",
+  "sideEffects": false,
+  "license": "UNLICENSED",
+  "files": ["dist"],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json"
+  },
+  "dependencies": {
+    "@convetlib/core": "workspace:*",
+    "docx": "^9.14.0"
+  },
+  "devDependencies": {
+    "tsup": "^9.0.0",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.5"
+  }
+}
