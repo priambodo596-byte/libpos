@@ -355,7 +355,7 @@ Integrasi browser dan HTML importer memiliki cakupan yang konservatif. Uji HTML 
 | `@convetlib/web-components` | Adapter Web Components | Direncanakan |
 | `@convetlib/layout` | Pagination dan layout halaman | Direncanakan |
 | `@convetlib/docx` | Export DOCX semantik | Fondasi ekspor tersedia; import direncanakan |
-| `@convetlib/pdf` | Export PDF semantik | Fondasi tersedia; font/gambar lanjutan direncanakan |
+| `@convetlib/pdf` | Export PDF semantik | Fondasi tersedia; font kustom dan tata letak gambar lanjutan direncanakan |
 | `@convetlib/templates` | Template dan placeholder | Fondasi tersedia |
 | `@convetlib/review` | Comments, suggestions, track changes | Direncanakan |
 

@@ -35,6 +35,20 @@ describe("PDF export adapter", () => {
     expect(loaded.getPageCount()).toBeGreaterThan(1);
   });
 
+  it("embeds resolved PNG image bytes in the exported PDF", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const doc = createDocument({ ids, content: [f.image("asset:logo", { alt: "Company logo", width: 24, height: 24 })] });
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ZkAAAAASUVORK5CYII="), c => c.charCodeAt(0));
+    const bytes = await exportPdf(doc, { resolveImage: source => {
+      expect(source).toBe("asset:logo");
+      return { data: png, type: "png" };
+    } });
+    const loaded = await PDFDocument.load(bytes);
+    expect(loaded.getPageCount()).toBe(1);
+    expect(bytes.byteLength).toBeGreaterThan(png.byteLength);
+  });
+
   it("rejects documents without sections", async () => {
     await expect(exportPdf({ sections: [] } as never)).rejects.toThrow(/at least one section/);
   });

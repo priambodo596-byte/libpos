@@ -6,6 +6,8 @@ export interface PdfExportOptions {
   fontSize?: number;
   /** Extra vertical gap after each paragraph, in points. Defaults to 5. */
   paragraphGap?: number;
+  /** Resolve an image source to binary data. Remote URLs are never fetched implicitly. */
+  resolveImage?: (source: string) => Promise<{ data: Uint8Array; type: "png" | "jpg" }> | { data: Uint8Array; type: "png" | "jpg" };
 }
 
 function twipsToPoints(value: number, fallback: number): number {
@@ -122,6 +124,32 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
     };
 
     for (const block of section.content) {
+      if (block.type === "image") {
+        const source = block.attrs?.src;
+        let embedded: Awaited<ReturnType<typeof pdf.embedPng>> | Awaited<ReturnType<typeof pdf.embedJpg>> | undefined;
+        if (typeof source === "string" && options.resolveImage) {
+          try {
+            const resolved = await options.resolveImage(source);
+            embedded = resolved.type === "png" ? await pdf.embedPng(resolved.data) : await pdf.embedJpg(resolved.data);
+          } catch {
+            embedded = undefined;
+          }
+        }
+        if (embedded) {
+          const requestedWidth = typeof block.attrs?.width === "number" && block.attrs.width > 0 ? block.attrs.width : embedded.width;
+          const requestedHeight = typeof block.attrs?.height === "number" && block.attrs.height > 0 ? block.attrs.height : embedded.height;
+          const maxImageHeight = dimensions.height - dimensions.top - dimensions.bottom;
+          const scale = Math.min(1, maxWidth / requestedWidth, maxImageHeight / requestedHeight);
+          const width = requestedWidth * scale;
+          const height = requestedHeight * scale;
+          ensureSpace(height + paragraphGap);
+          page.drawImage(embedded, { x: dimensions.left, y: y - height, width, height });
+          y -= height + paragraphGap;
+        } else {
+          drawWrapped(nodeText(block), regular, bodySize, paragraphGap);
+        }
+        continue;
+      }
       if (block.type === "pageBreak") {
         newPage();
         continue;
