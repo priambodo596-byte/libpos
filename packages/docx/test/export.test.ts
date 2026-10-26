@@ -114,6 +114,17 @@ describe("DOCX export adapter", () => {
     expect(paragraph?.attrs).toMatchObject({ styleId: "BodyCustom", styleName: "Custom Body", styleBasedOn: "BaseText", align: "center", spacingBefore: 120, spacingAfter: 360, indentLeft: 720, indentRight: 360, firstLineIndent: 240 });
   });
 
+  it("resolves character style inheritance and gives direct run properties precedence", async () => {
+    const zip = new JSZip();
+    zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="BodyText"/></w:pPr><w:r><w:rPr><w:rStyle w:val="EmphasisCustom"/><w:i w:val="0"/><w:vertAlign w:val="superscript"/></w:rPr><w:t>Styled run</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`);
+    zip.file("word/styles.xml", `<?xml version="1.0" encoding="UTF-8"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="BaseBody"><w:rPr><w:b/><w:i/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="BodyText"><w:basedOn w:val="BaseBody"/></w:style><w:style w:type="character" w:styleId="BaseEmphasis"><w:rPr><w:u w:val="single"/></w:rPr></w:style><w:style w:type="character" w:styleId="EmphasisCustom"><w:basedOn w:val="BaseEmphasis"/><w:rPr><w:b w:val="0"/><w:i/></w:rPr></w:style></w:styles>`);
+    const bytes = await zip.generateAsync({ type: "uint8array" });
+    const imported = await importDocx(bytes);
+    const textNode = imported.sections[0]?.content[0]?.content?.[0];
+    expect(textNode).toMatchObject({ type: "text", text: "Styled run", marks: [{ type: "underline" }, { type: "superscript" }] });
+    expect(textNode && "marks" in textNode ? textNode.marks?.some(mark => mark.type === "bold" || mark.type === "italic") : false).toBe(false);
+  });
+
   it("rejects invalid ZIP input and enforces the configured input limit", async () => {
     await expect(importDocx(new Uint8Array([1, 2, 3]))).rejects.toThrow();
     await expect(importDocx(new Uint8Array(32), { maxInputBytes: 16 })).rejects.toThrow(/16 bytes/);

@@ -90,23 +90,55 @@ function readPageSetup(documentXml: XmlDocument): PageSetup {
     },
   };
 }
-function paragraphMarks(run: Element): Mark[] {
-  const props = elements(run, "rPr")[0];
-  if (!props) return [];
+type CharacterStyle = { id: string; basedOn?: string; attrs: Record<string, boolean | string> };
+type RunFormat = Record<string, boolean | string>;
+
+function readRunFormat(props: Element | undefined): RunFormat {
+  const result: RunFormat = {};
+  if (!props) return result;
+  const toggle = (source: string, target: string) => {
+    const item = elements(props, source)[0];
+    if (!item) return;
+    const value = attr(item, "val");
+    result[target] = value === undefined ? true : !["0", "false", "off", "none"].includes(value.toLowerCase());
+  };
+  toggle("b", "bold");
+  toggle("i", "italic");
+  toggle("u", "underline");
+  toggle("strike", "strike");
+  toggle("dstrike", "strike");
+  const vertical = attr(elements(props, "vertAlign")[0], "val");
+  if (vertical !== undefined) result.vertical = vertical;
+  return result;
+}
+
+function paragraphMarks(run: Element, paragraphStyleId?: string, characterStyles: Map<string, CharacterStyle> = new Map(), paragraphStyles: Map<string, ParagraphStyle> = new Map()): Mark[] {
+  const resolved: RunFormat = {};
+  const applyChain = (id: string | undefined, styles: Map<string, { id: string; basedOn?: string; attrs?: RunFormat }>) => {
+    const chain: { id: string; basedOn?: string; attrs?: RunFormat }[] = [];
+    const seen = new Set<string>();
+    let current = id ? styles.get(id) : undefined;
+    while (current && !seen.has(current.id) && chain.length < 32) {
+      seen.add(current.id); chain.unshift(current);
+      current = current.basedOn ? styles.get(current.basedOn) : undefined;
+    }
+    for (const style of chain) Object.assign(resolved, style.attrs ?? {});
+  };
+  applyChain(paragraphStyleId, new Map([...paragraphStyles].map(([id, style]) => [id, { id, ...(style.basedOn ? { basedOn: style.basedOn } : {}), attrs: readRunFormat(style.runProps) }])));
+  const runProps = elements(run, "rPr")[0];
+  const charStyleId = attr(elements(runProps ?? run, "rStyle")[0], "val");
+  applyChain(charStyleId, characterStyles);
+  Object.assign(resolved, readRunFormat(runProps));
   const marks: Mark[] = [];
-  const has = (name: string) => elements(props, name).some(item => attr(item, "val") !== "0" && attr(item, "val") !== "false");
-  if (has("b")) marks.push({ type: "bold" });
-  if (has("i")) marks.push({ type: "italic" });
-  if (has("u")) marks.push({ type: "underline" });
-  if (has("strike") || has("dstrike")) marks.push({ type: "strike" });
-  if (has("vertAlign")) {
-    const align = attr(elements(props, "vertAlign")[0], "val");
-    if (align === "superscript") marks.push({ type: "superscript" });
-    if (align === "subscript") marks.push({ type: "subscript" });
-  }
+  if (resolved.bold === true) marks.push({ type: "bold" });
+  if (resolved.italic === true) marks.push({ type: "italic" });
+  if (resolved.underline === true) marks.push({ type: "underline" });
+  if (resolved.strike === true) marks.push({ type: "strike" });
+  if (resolved.vertical === "superscript") marks.push({ type: "superscript" });
+  if (resolved.vertical === "subscript") marks.push({ type: "subscript" });
   return marks;
 }
-function runContent(paragraph: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>): Inline[] {
+function runContent(paragraph: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>, paragraphStyleId?: string, characterStyles: Map<string, CharacterStyle> = new Map(), paragraphStyles: Map<string, ParagraphStyle> = new Map()): Inline[] {
   const inline: Inline[] = [];
   const process = (element: Element) => {
     if (element.namespaceURI !== WORD_NS) {
@@ -121,13 +153,13 @@ function runContent(paragraph: Element, relationships: Map<string, { target: str
     }
     if (element.localName === "t" || element.localName === "delText") {
       const text = element.textContent ?? "";
-      if (text) inline.push({ type: "text", text, ...(element.parentElement ? { marks: paragraphMarks(element.parentElement) } : {}) });
+      if (text) { const marks = element.parentElement ? paragraphMarks(element.parentElement, paragraphStyleId, characterStyles, paragraphStyles) : []; inline.push({ type: "text", text, ...(marks.length ? { marks } : {}) }); }
     } else if (element.localName === "tab") {
       inline.push({ type: "text", text: "\t" });
     } else if (element.localName === "br" || element.localName === "cr") {
       inline.push({ type: "hardBreak" });
     } else if (element.localName === "r") {
-      const marks = paragraphMarks(element);
+      const marks = paragraphMarks(element, paragraphStyleId, characterStyles, paragraphStyles);
       for (const child of elements(element, "t").concat(elements(element, "delText"))) {
         const text = child.textContent ?? "";
         if (text) inline.push({ type: "text", text, ...(marks.length ? { marks } : {}) });
@@ -159,7 +191,21 @@ function runContent(paragraph: Element, relationships: Map<string, { target: str
   }
   return inline;
 }
-type ParagraphStyle = { id: string; name?: string; basedOn?: string; outlineLevel?: number; attrs: Record<string, string | number> };
+type ParagraphStyle = { id: string; name?: string; basedOn?: string; outlineLevel?: number; attrs: Record<string, string | number>; runProps?: Element };
+async function readCharacterStyles(zip: JSZip, limit: number): Promise<Map<string, CharacterStyle>> {
+  const result = new Map<string, CharacterStyle>();
+  if (!zip.file("word/styles.xml")) return result;
+  const xml = await readXml(zip, "word/styles.xml", limit);
+  for (const style of elements(xml.documentElement as unknown as Element, "style")) {
+    if (attr(style, "type") !== "character") continue;
+    const id = attr(style, "styleId");
+    if (!id) continue;
+    const basedOn = attr(elements(style, "basedOn")[0], "val");
+    result.set(id, { id, ...(basedOn ? { basedOn } : {}), attrs: readRunFormat(elements(style, "rPr")[0]) });
+  }
+  return result;
+}
+
 async function readParagraphStyles(zip: JSZip, limit: number): Promise<Map<string, ParagraphStyle>> {
   const result = new Map<string, ParagraphStyle>();
   if (!zip.file("word/styles.xml")) return result;
@@ -172,7 +218,7 @@ async function readParagraphStyles(zip: JSZip, limit: number): Promise<Map<strin
     const basedOn = attr(elements(style, "basedOn")[0], "val");
     const pPr = elements(style, "pPr")[0];
     const outline = attr(elements(pPr ?? style, "outlineLvl")[0], "val");
-    result.set(id, { id, ...(name ? { name } : {}), ...(basedOn ? { basedOn } : {}), ...(outline !== undefined && Number.isInteger(Number(outline)) ? { outlineLevel: Number(outline) } : {}), attrs: readParagraphAttrs(pPr) });
+    result.set(id, { id, ...(name ? { name } : {}), ...(basedOn ? { basedOn } : {}), ...(outline !== undefined && Number.isInteger(Number(outline)) ? { outlineLevel: Number(outline) } : {}), attrs: readParagraphAttrs(pPr), ...(elements(style, "rPr")[0] ? { runProps: elements(style, "rPr")[0]! } : {}) });
   }
   return result;
 }
@@ -195,13 +241,13 @@ function readParagraphAttrs(props: Element | undefined): Record<string, string |
   if (rule) result.lineSpacingRule = rule;
   return result;
 }
-function makeParagraph(element: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>, styles: Map<string, ParagraphStyle> = new Map()): BlockNode {
+function makeParagraph(element: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>, styles: Map<string, ParagraphStyle> = new Map(), characterStyles: Map<string, CharacterStyle> = new Map()): BlockNode {
   const props = elements(element, "pPr")[0];
   const styleId = attr(elements(props ?? element, "pStyle")[0], "val");
   const style = styleId ? styles.get(styleId) : undefined;
   const heading = styleId?.match(/^Heading([1-6])$/i);
   const level = heading ? Number(heading[1]) : style?.outlineLevel !== undefined && style.outlineLevel >= 0 && style.outlineLevel < 6 ? style.outlineLevel + 1 : undefined;
-  const inline = runContent(element, relationships, media, factory);
+  const inline = runContent(element, relationships, media, factory, styleId, characterStyles, styles);
   const node = level ? factory.heading(level as 1 | 2 | 3 | 4 | 5 | 6, inline) : factory.paragraph(inline);
   const chain: ParagraphStyle[] = [];
   const seen = new Set<string>();
@@ -277,14 +323,14 @@ function numberingFor(paragraph: Element, numbering: Map<string, NumberingInfo>)
   const info = numbering.get(numId);
   return info ? { numId, info } : undefined;
 }
-function blockFromElement(element: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>, styles: Map<string, ParagraphStyle>): BlockNode | undefined {
-  if (element.localName === "p") return makeParagraph(element, relationships, media, factory, styles);
+function blockFromElement(element: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>, styles: Map<string, ParagraphStyle>, characterStyles: Map<string, CharacterStyle>): BlockNode | undefined {
+  if (element.localName === "p") return makeParagraph(element, relationships, media, factory, styles, characterStyles);
   if (element.localName === "tbl") {
     const rows: BlockNode[] = [];
     for (const row of elements(element, "tr")) {
       const cells: BlockNode[] = [];
       for (const cell of elements(row, "tc")) {
-        const content = elements(cell, "p").map(p => makeParagraph(p, relationships, media, factory, styles));
+        const content = elements(cell, "p").map(p => makeParagraph(p, relationships, media, factory, styles, characterStyles));
         cells.push(factory.block("tableCell", content.length ? content : [factory.paragraph()]));
       }
       if (cells.length) rows.push(factory.block("tableRow", cells));
@@ -348,6 +394,7 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
   const body = first(documentXml, "body");
   if (!body) throw new TypeError("DOCX document.xml does not contain a document body");
   const styles = await readParagraphStyles(zip, xmlLimit);
+  const characterStyles = await readCharacterStyles(zip, xmlLimit);
   const numbering = await readNumbering(zip, xmlLimit);
   const ids = options.ids ?? createSequentialIdGenerator("docx-");
   const factory = createNodeFactory(ids);
@@ -367,7 +414,7 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
         const candidate = bodyElements[i]!;
         const candidateList = candidate.localName === "p" ? numberingFor(candidate, numbering) : undefined;
         if (!candidateList || candidateList.numId !== list.numId || candidateList.info.type !== list.info.type) break;
-        const paragraph = makeParagraph(candidate, relationships, media, factory, styles);
+        const paragraph = makeParagraph(candidate, relationships, media, factory, styles, characterStyles);
         items.push(factory.listItem([paragraph]));
         listImages.push(...imagesFromParagraph(candidate, relationships, media, factory));
         i += 1;
@@ -377,7 +424,7 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
       content.push(...listImages);
       continue;
     }
-    const node = blockFromElement(element, relationships, media, factory, styles);
+    const node = blockFromElement(element, relationships, media, factory, styles, characterStyles);
     if (node) {
       content.push(node);
       if (element.localName === "p") content.push(...imagesFromParagraph(element, relationships, media, factory));
@@ -397,7 +444,7 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
     for (let i = 0; i < root.childNodes.length; i += 1) {
       const child = root.childNodes.item(i);
       if (child?.nodeType !== 1) continue;
-      const node = blockFromElement(child as unknown as Element, relationships, media, factory, styles);
+      const node = blockFromElement(child as unknown as Element, relationships, media, factory, styles, characterStyles);
       if (node) blocks.push(node);
     }
     return blocks;

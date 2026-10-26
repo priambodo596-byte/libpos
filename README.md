@@ -56,7 +56,7 @@ convetlib adalah library/SDK editor dokumen berbasis TypeScript yang dirancang a
 - Safe hyperlinks (`http`, `https`, `mailto`, and internal anchors) are imported as `link` marks; unsupported or unsafe schemes are not retained.
 - Default section headers and footers are imported as section-level block content. Header/footer variants, their own image relationships, and different-first/even-page behavior are not yet preserved.
 - Optional host-provided image resolver for export; remote images are not fetched implicitly.
-- DOCX import is a semantic foundation, not full-fidelity conversion. Paragraph style inheritance and common paragraph spacing/indentation are imported, but character-style inheritance, theme fonts/colors, comments/revisions, merged cells, nested list levels, floating objects, and pixel-perfect Word layout are not fully supported.
+- DOCX import is a semantic foundation, not full-fidelity conversion. Paragraph style inheritance, common paragraph spacing/indentation, and supported rich-text marks inherited from paragraph/character styles and direct run properties are imported. Theme fonts/colors, comments/revisions, merged cells, nested list levels, floating objects, and pixel-perfect Word layout are not fully supported.
 
 ### `@convetlib/pdf`
 
