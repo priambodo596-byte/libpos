@@ -65,28 +65,28 @@ function readXml(zip: JSZip, path: string, maxBytes: number): Promise<XmlDocumen
     return parseXml(xml, path);
   });
 }
-function twipsToPoints(value: string | undefined, fallback: number): number {
+function twipsValue(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed / 20) : fallback;
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : fallback;
 }
 function readPageSetup(documentXml: XmlDocument): PageSetup {
   const sect = first(documentXml, "sectPr");
   const size = sect ? first(sect, "pgSz") : undefined;
   const margins = sect ? first(sect, "pgMar") : undefined;
   const base = defaultPageSetup();
-  const width = twipsToPoints(attr(size, "w"), base.size.width);
-  const height = twipsToPoints(attr(size, "h"), base.size.height);
+  const width = twipsValue(attr(size, "w"), base.size.width);
+  const height = twipsValue(attr(size, "h"), base.size.height);
   return {
     size: { width, height },
     orientation: attr(size, "orient") === "landscape" || width > height ? "landscape" : "portrait",
     margins: {
-      top: twipsToPoints(attr(margins, "top"), base.margins.top),
-      right: twipsToPoints(attr(margins, "right"), base.margins.right),
-      bottom: twipsToPoints(attr(margins, "bottom"), base.margins.bottom),
-      left: twipsToPoints(attr(margins, "left"), base.margins.left),
-      header: twipsToPoints(attr(margins, "header"), base.margins.header),
-      footer: twipsToPoints(attr(margins, "footer"), base.margins.footer),
+      top: twipsValue(attr(margins, "top"), base.margins.top),
+      right: twipsValue(attr(margins, "right"), base.margins.right),
+      bottom: twipsValue(attr(margins, "bottom"), base.margins.bottom),
+      left: twipsValue(attr(margins, "left"), base.margins.left),
+      header: twipsValue(attr(margins, "header"), base.margins.header),
+      footer: twipsValue(attr(margins, "footer"), base.margins.footer),
     },
   };
 }
@@ -134,13 +134,7 @@ function runContent(paragraph: Element, relationships: Map<string, { target: str
       }
       for (const child of elements(element, "tab")) { void child; inline.push({ type: "text", text: "\t", ...(marks.length ? { marks } : {}) }); }
       for (const child of elements(element, "br").concat(elements(element, "cr"))) { void child; inline.push({ type: "hardBreak" }); }
-      for (const child of elements(element, "drawing")) {
-        const blip = child.getElementsByTagNameNS("http://schemas.openxmlformats.org/drawingml/2006/main", "blip").item(0) as unknown as Element | null;
-        const relationshipId = blip?.getAttributeNS(REL_NS, "embed");
-        const relationship = relationshipId ? relationships.get(relationshipId) : undefined;
-        const asset = relationship ? media.get(relationship.target) : undefined;
-        if (asset) inline.push({ type: "text", text: "[Imported image]" });
-      }
+      // Drawing nodes are imported as editable block-level image nodes by blockFromElement.
     } else if (element.localName === "hyperlink") {
       for (const child of elements(element, "r")) process(child);
     }
@@ -160,6 +154,64 @@ function makeParagraph(element: Element, relationships: Map<string, { target: st
   const align = attr(elements(props ?? element, "jc")[0], "val");
   if (["left", "center", "right", "both", "distribute"].includes(align ?? "")) node.attrs = { ...(node.attrs ?? {}), align: align === "both" || align === "distribute" ? "justify" : align! };
   return node;
+}
+function imagesFromParagraph(element: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>): BlockNode[] {
+  const result: BlockNode[] = [];
+  const drawings = descendants(element, "drawing");
+  for (const drawing of drawings) {
+    const blip = drawing.getElementsByTagNameNS("http://schemas.openxmlformats.org/drawingml/2006/main", "blip").item(0) as Element | null;
+    const relationshipId = blip?.getAttributeNS(REL_NS, "embed");
+    const relationship = relationshipId ? relationships.get(relationshipId) : undefined;
+    const asset = relationship ? media.get(relationship.target) : undefined;
+    if (!asset) continue;
+    const extent = first(drawing, "extent", "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing");
+    const cx = Number(extent?.getAttribute("cx"));
+    const cy = Number(extent?.getAttribute("cy"));
+    const width = Number.isFinite(cx) && cx > 0 ? Math.max(1, Math.min(2000, Math.round(cx / 9525))) : undefined;
+    const height = Number.isFinite(cy) && cy > 0 ? Math.max(1, Math.min(2000, Math.round(cy / 9525))) : undefined;
+    result.push(factory.image(asset.data, { alt: "Imported image", ...(width ? { width } : {}), ...(height ? { height } : {}) }));
+  }
+  return result;
+}
+type NumberingInfo = { type: "orderedList" | "bulletList"; start: number };
+function readNumbering(zip: JSZip, maxBytes: number): Promise<Map<string, NumberingInfo>> {
+  const result = new Map<string, NumberingInfo>();
+  if (!zip.file("word/numbering.xml")) return Promise.resolve(result);
+  return readXml(zip, "word/numbering.xml", maxBytes).then(xml => {
+    const formats = new Map<string, Map<number, { type: "orderedList" | "bulletList"; start: number }>>();
+    for (const abstract of descendants(xml.documentElement as unknown as Element, "abstractNum")) {
+      const abstractId = attr(abstract, "abstractNumId");
+      if (!abstractId) continue;
+      const levels = new Map<number, { type: "orderedList" | "bulletList"; start: number }>();
+      for (const level of elements(abstract, "lvl")) {
+        const ilvl = Number(attr(level, "ilvl") ?? "0");
+        const fmt = attr(elements(level, "numFmt")[0], "val");
+        const start = Number(attr(elements(level, "start")[0], "val") ?? "1");
+        if (Number.isInteger(ilvl) && ilvl >= 0) levels.set(ilvl, {
+          type: fmt === "bullet" ? "bulletList" : "orderedList",
+          start: Number.isInteger(start) && start > 0 ? start : 1,
+        });
+      }
+      formats.set(abstractId, levels);
+    }
+    for (const num of descendants(xml.documentElement as unknown as Element, "num")) {
+      const numId = attr(num, "numId");
+      const abstractId = attr(elements(num, "abstractNumId")[0], "val");
+      if (!numId || !abstractId) continue;
+      const level = formats.get(abstractId)?.get(0);
+      if (level) result.set(numId, level);
+    }
+    return result;
+  });
+}
+function numberingFor(paragraph: Element, numbering: Map<string, NumberingInfo>): { numId: string; info: NumberingInfo } | undefined {
+  const props = elements(paragraph, "pPr")[0];
+  if (!props) return undefined;
+  const numPr = elements(props, "numPr")[0];
+  const numId = attr(elements(numPr ?? props, "numId")[0], "val");
+  if (!numId) return undefined;
+  const info = numbering.get(numId);
+  return info ? { numId, info } : undefined;
 }
 function blockFromElement(element: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>): BlockNode | undefined {
   if (element.localName === "p") return makeParagraph(element, relationships, media, factory);
@@ -226,15 +278,40 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
   }
   const body = first(documentXml, "body");
   if (!body) throw new TypeError("DOCX document.xml does not contain a document body");
+  const numbering = await readNumbering(zip, xmlLimit);
   const ids = options.ids ?? createSequentialIdGenerator("docx-");
   const factory = createNodeFactory(ids);
   const content: BlockNode[] = [];
+  const bodyElements: Element[] = [];
   for (let i = 0; i < body.childNodes.length; i += 1) {
     const child = body.childNodes.item(i);
-    if (child?.nodeType !== 1) continue;
-    const element = child as Element;
+    if (child?.nodeType === 1) bodyElements.push(child as Element);
+  }
+  for (let i = 0; i < bodyElements.length; i += 1) {
+    const element = bodyElements[i]!;
+    const list = element.localName === "p" ? numberingFor(element, numbering) : undefined;
+    if (list) {
+      const items: BlockNode[] = [];
+      const listImages: BlockNode[] = [];
+      while (i < bodyElements.length) {
+        const candidate = bodyElements[i]!;
+        const candidateList = candidate.localName === "p" ? numberingFor(candidate, numbering) : undefined;
+        if (!candidateList || candidateList.numId !== list.numId || candidateList.info.type !== list.info.type) break;
+        const paragraph = makeParagraph(candidate, relationships, media, factory);
+        items.push(factory.listItem([paragraph]));
+        listImages.push(...imagesFromParagraph(candidate, relationships, media, factory));
+        i += 1;
+      }
+      i -= 1;
+      if (items.length) content.push(factory.block(list.info.type, items, list.info.type === "orderedList" ? { start: list.info.start } : undefined));
+      content.push(...listImages);
+      continue;
+    }
     const node = blockFromElement(element, relationships, media, factory);
-    if (node) content.push(node);
+    if (node) {
+      content.push(node);
+      if (element.localName === "p") content.push(...imagesFromParagraph(element, relationships, media, factory));
+    }
   }
   const section = first(body, "sectPr") ? readPageSetup(documentXml) : defaultPageSetup();
   const doc = createDocument({ ids, title: options.title ?? "Imported DOCX", content: content.length ? content : [factory.paragraph()], page: section, now: options.now ?? new Date().toISOString() });

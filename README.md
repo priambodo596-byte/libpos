@@ -50,9 +50,11 @@ convetlib adalah library/SDK editor dokumen berbasis TypeScript yang dirancang a
 ### `@convetlib/docx`
 
 - Semantic DOCX export through `exportDocx(document, options?)` and initial DOCX import through `importDocx(bytes, options?)`.
-- Import reads common OOXML paragraphs, Heading 1–6 styles, bold/italic/underline/strike/superscript/subscript marks, basic tables, and section page geometry. Recognized inline image references currently become readable `[Imported image]` placeholders.
-- Optional host-provided image resolver; remote images are not fetched implicitly.
-- DOCX import is an early semantic foundation, not full-fidelity conversion. List numbering, embedded image extraction into editable image nodes, headers/footers, comments/revisions, merged cells, and pixel-perfect HTML/CSS conversion are not supported yet.
+- Import reads common OOXML paragraphs, Heading 1–6 styles, bold/italic/underline/strike/superscript/subscript marks, basic tables, and section page geometry.
+- Embedded supported raster images (PNG, JPEG, GIF, BMP) are imported as editable block-level image nodes with data URIs and dimensions when available. Their position is approximated at paragraph level; exact inline positioning is not preserved.
+- Basic Word numbering definitions are mapped to structured ordered or bullet lists for adjacent paragraphs using the same numbering ID. The first-level numbering format/start value is supported; nested levels and advanced restart/override rules are not yet preserved.
+- Optional host-provided image resolver for export; remote images are not fetched implicitly.
+- DOCX import is a semantic foundation, not full-fidelity conversion. Headers/footers, comments/revisions, custom style inheritance, hyperlinks, merged cells, nested list levels, floating objects, and pixel-perfect Word layout are not fully supported.
 
 ### `@convetlib/pdf`
 
@@ -354,12 +356,12 @@ Integrasi browser dan HTML importer memiliki cakupan yang konservatif. Uji HTML 
 | `@convetlib/react` | Adapter React | Direncanakan |
 | `@convetlib/web-components` | Adapter Web Components | Direncanakan |
 | `@convetlib/layout` | Pagination dan layout halaman | Direncanakan |
-| `@convetlib/docx` | Import/export DOCX | Fondasi ekspor dan import semantik tersedia; fitur Word kompleks masih terbatas |
+| `@convetlib/docx` | Import/export DOCX | Ekspor semantik; impor mendukung gambar raster editable dan daftar dasar, fitur Word kompleks masih terbatas |
 | `@convetlib/pdf` | Export PDF semantik | Fondasi ekspor tersedia; layout kompleks dan aksesibilitas PDF masih dikembangkan |
 | `@convetlib/templates` | Template dan placeholder | Fondasi tersedia |
 | `@convetlib/review` | Comments, suggestions, track changes | Direncanakan |
 
-Package yang berstatus direncanakan pada tabel tersebut belum tersedia sebagai package implementasi dalam workspace saat ini. Package DOCX saat ini hanya menyediakan ekspor semantik dan belum menyediakan import DOCX.
+Package yang berstatus direncanakan pada tabel tersebut belum tersedia sebagai package implementasi dalam workspace saat ini. Package DOCX menyediakan ekspor semantik dan impor DOCX dasar; fidelitas penuh Word masih dalam pengembangan.
 
 ## Batasan saat ini
 
