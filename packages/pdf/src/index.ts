@@ -1,4 +1,4 @@
-﻿import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import type { BlockNode, DocumentJSON, PageSetup, Section } from "@convetlib/core";
 
@@ -128,12 +128,12 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
   }
   const bodySize = Math.max(6, Math.min(36, options.fontSize ?? 11));
   const paragraphGap = Math.max(0, Math.min(48, options.paragraphGap ?? 5));
-  const pageLayouts: Array<{ page: PDFPage; dimensions: ReturnType<typeof pageDimensions> }> = [];
+  const pageLayouts: Array<{ page: PDFPage; dimensions: ReturnType<typeof pageDimensions>; section: Section }> = [];
 
   for (const section of document.sections) {
     const dimensions = pageDimensions(section.page);
     let page: PDFPage = pdf.addPage([dimensions.width, dimensions.height]);
-    pageLayouts.push({ page, dimensions });
+    pageLayouts.push({ page, dimensions, section });
     let y = dimensions.height - dimensions.top;
     const maxWidth = dimensions.width - dimensions.left - dimensions.right;
     const lineHeight = bodySize * 1.35;
@@ -141,7 +141,7 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
     const newPage = (setup: PageSetup = section.page) => {
       const d = pageDimensions(setup);
       page = pdf.addPage([d.width, d.height]);
-      pageLayouts.push({ page, dimensions: d });
+      pageLayouts.push({ page, dimensions: d, section });
       y = d.height - d.top;
     };
     const ensureSpace = (height: number) => {
@@ -306,20 +306,53 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
   }
 
   const totalPages = pageLayouts.length;
-  pageLayouts.forEach(({ page, dimensions }, index) => {
+  for (const [index, { page, dimensions, section }] of pageLayouts.entries()) {
     const pageNumber = index + 1;
     const replaceTokens = (value: string) => value.replace(/\{\{\s*pageNumber\s*\}\}/gi, String(pageNumber)).replace(/\{\{\s*pageCount\s*\}\}/gi, String(totalPages));
     const drawMarginText = (value: string, y: number) => {
       const text = safePdfText(replaceTokens(value), Boolean(options.fontBytes));
       const maxWidth = dimensions.width - dimensions.left - dimensions.right;
-      const clipped = text;
-      let display = clipped;
+      let display = text;
       while (display.length > 0 && regular.widthOfTextAtSize(display, 9) > maxWidth) display = display.slice(0, -1);
       page.drawText(display, { x: dimensions.left, y, size: 9, font: regular, color: rgb(0, 0, 0) });
     };
+    const drawRegion = async (blocks: BlockNode[] | undefined, region: "header" | "footer") => {
+      if (!blocks?.length) return;
+      const contentWidth = dimensions.width - dimensions.left - dimensions.right;
+      let offset = 0;
+      for (const block of blocks) {
+        if (block.type === "image") {
+          const source = block.attrs?.src;
+          if (typeof source !== "string" || !options.resolveImage) continue;
+          try {
+            const resolved = await options.resolveImage(source);
+            const embedded = resolved.type === "png" ? await pdf.embedPng(resolved.data) : await pdf.embedJpg(resolved.data);
+            const requestedWidth = typeof block.attrs?.width === "number" && block.attrs.width > 0 ? block.attrs.width : embedded.width;
+            const requestedHeight = typeof block.attrs?.height === "number" && block.attrs.height > 0 ? block.attrs.height : embedded.height;
+            const scale = Math.min(1, contentWidth / requestedWidth, 100 / requestedHeight);
+            const width = requestedWidth * scale;
+            const height = requestedHeight * scale;
+            const align = block.attrs?.align;
+            const x = align === "right" ? dimensions.width - dimensions.right - width : align === "center" ? dimensions.left + (contentWidth - width) / 2 : dimensions.left;
+            const y = region === "header" ? dimensions.height - Math.max(12, twipsToPoints(section.page.margins.header, 36)) - height - offset : Math.max(8, dimensions.bottom * 0.35) + offset;
+            page.drawImage(embedded, { x, y, width, height });
+            offset += height + 2;
+          } catch { /* Unresolvable image sources are skipped rather than breaking export. */ }
+        } else {
+          const text = safePdfText(replaceTokens(nodeText(block)), Boolean(options.fontBytes));
+          if (text) {
+            const y = region === "header" ? dimensions.height - Math.max(18, dimensions.top * 0.55) - offset : Math.max(8, dimensions.bottom * 0.35) + offset;
+            page.drawText(text.slice(0, 180), { x: dimensions.left, y, size: 9, font: regular, color: rgb(0, 0, 0) });
+            offset += 11;
+          }
+        }
+      }
+    };
+    await drawRegion(section.header, "header");
+    await drawRegion(section.footer, "footer");
     if (options.header) drawMarginText(options.header, dimensions.height - Math.max(18, dimensions.top * 0.55));
     if (options.footer) drawMarginText(options.footer, Math.max(8, dimensions.bottom * 0.35));
     else if (options.pageNumbering) drawMarginText("Page {{pageNumber}} of {{pageCount}}", Math.max(8, dimensions.bottom * 0.35));
-  });
+  }
   return pdf.save();
 }

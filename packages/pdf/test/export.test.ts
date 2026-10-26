@@ -72,6 +72,23 @@ describe("PDF export adapter", () => {
     expect(bytes.byteLength).toBeGreaterThan(png.byteLength);
   });
 
+  it("embeds an aligned image from the document section header", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const doc = createDocument({ ids, title: "Header image", content: [f.paragraph("Body content")] });
+    const image = f.image("asset:header-logo", { alt: "Header logo", width: 24, height: 24 });
+    image.attrs = { ...(image.attrs ?? {}), align: "right" };
+    doc.sections[0]!.header = [image];
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ZkAAAAASUVORK5CYII="), c => c.charCodeAt(0));
+    const bytes = await exportPdf(doc, { resolveImage: source => {
+      expect(source).toBe("asset:header-logo");
+      return { data: png, type: "png" };
+    } });
+    const loaded = await PDFDocument.load(bytes);
+    expect(loaded.getPageCount()).toBe(1);
+    expect(bytes.byteLength).toBeGreaterThan(png.byteLength);
+  });
+
   it("adds repeating headers, custom footers, and page-number tokens", async () => {
     const ids = createSequentialIdGenerator();
     const f = createNodeFactory(ids);
