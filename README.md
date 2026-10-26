@@ -39,7 +39,7 @@ convetlib adalah library/SDK editor dokumen berbasis TypeScript yang dirancang a
 - Pengeditan lintas blok yang didukung planner, termasuk sejumlah struktur bersarang.
 - Penggantian seleksi lintas section untuk blok teks tingkat atas pada body dokumen; header/footer dan struktur bersarang lintas section ditolak secara aman.
 - Perintah penghapusan baris/kolom tabel dengan guard untuk struktur yang tidak aman.
-- Keyboard shortcut helper, clipboard plain/rich text utilities, HTML importer konservatif, serta composition/IME utilities.
+- Keyboard shortcut helper, clipboard plain/rich/structural utilities, HTML importer konservatif untuk teks dan urutan paragraf-gambar-tabel sederhana, serta composition/IME utilities.
 - Browser DOM binder untuk menghubungkan event input dan selection ke model.
 
 ### `@convetlib/ui`
@@ -354,8 +354,8 @@ Repository ini sedang dikembangkan dan **belum merupakan editor dokumen enterpri
 
 - Belum ada renderer UI lengkap atau adapter React/Web Components.
 - Belum ada import/export DOCX atau export PDF, pagination engine, maupun template engine.
-- Seleksi lintas section serta lintas header/body/footer belum didukung.
-- Clipboard gambar/tabel dan fidelitas penuh HTML/CSS belum didukung.
+- Seleksi lintas section untuk blok teks tingkat atas pada body didukung dalam batas planner; seleksi lintas header/body/footer dan struktur bersarang lintas section tetap belum didukung.
+- Clipboard struktural gambar/tabel serta impor HTML campuran paragraf-gambar-tabel tersedia dalam cakupan konservatif; fidelitas penuh HTML/CSS, tabel kompleks, dan impor gambar biner otomatis belum didukung.
 - Pengujian IME sistem operasi nyata dan audit screen reader manual masih perlu dilakukan.
 - Storage, autentikasi, authorization, dan persistence produksi harus disediakan oleh aplikasi host.
 - Collaboration contracts tidak sama dengan implementasi algoritma sinkronisasi multi-user yang siap produksi.

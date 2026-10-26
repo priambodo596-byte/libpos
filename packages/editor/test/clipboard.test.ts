@@ -23,6 +23,16 @@ describe("clipboard interoperability", () => {
     expect(payload?.text).not.toContain("evil frame");
   });
 
+  it("imports mixed HTML in paragraph-image-table-paragraph order and strips unsafe markup", () => {
+    const payload = htmlToClipboardPayload('<p>Before</p><img src="https://example.com/pic.png" onerror="alert(1)"><table><tr><td><p>Cell</p></td></tr></table><p>After</p><img src="javascript:alert(1)"><script>bad()</script>');
+    expect(payload?.nodes?.map(node => node.type)).toEqual(["paragraph", "image", "table", "paragraph"]);
+    expect(payload?.text).toContain("Before");
+    expect(payload?.text).toContain("Cell");
+    expect(payload?.text).toContain("After");
+    expect(payload?.text).not.toContain("bad()");
+    expect(payload?.nodes?.[1]).toMatchObject({ type: "image", attrs: { src: "https://example.com/pic.png" } });
+    expect(payload?.nodes?.[2]).toMatchObject({ type: "table", content: [{ type: "tableRow" }] });
+  });
   it("pastes a validated image node without flattening it to text", async () => {
     const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
     const ed = await createEditor({ document: createDocument({ ids, content: [f.paragraph("before after")] }), ids });

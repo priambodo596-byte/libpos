@@ -1,6 +1,7 @@
 import type { BlockNode, Editor, EditorState, Inline, Mark, Transaction } from "@convetlib/core";
 import { defaultIdGenerator } from "@convetlib/core";
 import { isTextBlock, locateBlock, planCrossBlockEdit } from "./structure";
+import { htmlToStructuralClipboardPayload } from "./html-clipboard";
 
 export interface ClipboardRun { readonly text: string; readonly marks: readonly Mark[]; }
 export interface ClipboardBlock { readonly type: "paragraph" | "heading" | "codeBlock"; readonly attrs?: BlockNode["attrs"]; readonly runs: readonly ClipboardRun[]; }
@@ -183,6 +184,8 @@ function markForTag(tag:string): Mark|undefined {if(tag==="b"||tag==="strong")re
 /** Conservative HTML import: discards active elements and all attributes; only basic inline marks survive. */
 export function htmlToClipboardPayload(html:string): ClipboardPayload|undefined {
   if(typeof html!=="string"||html.length>1_000_000)return undefined;
+  const structural = htmlToStructuralClipboardPayload(html);
+  if (structural) return structural;
   const safe=html.replace(/<(script|style|iframe|object|svg|math)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,""),blocks:ClipboardBlock[]=[];let runs:ClipboardRun[]=[],marks:Mark[]=[],tag="p";
   const flush=()=>{const heading=/^h([1-6])$/.exec(tag);blocks.push({type:tag==="pre"?"codeBlock":heading?"heading":"paragraph",...(heading?{attrs:{level:Number(heading[1])}}:{}),runs});runs=[];};
   for(const token of safe.match(/<[^>]*>|[^<]+/g)??[]){const close=token.match(/^<\s*\/\s*([a-z0-9]+)[^>]*>$/i),open=token.match(/^<\s*([a-z0-9]+)\b[^>]*>$/i);
