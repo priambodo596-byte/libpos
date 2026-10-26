@@ -155,6 +155,7 @@ describe("DOCX export adapter", () => {
     const firstItem = list?.content?.[0] as BlockNode | undefined;
     const secondItem = list?.content?.[1] as BlockNode | undefined;
     expect(firstItem?.content?.map(node => node.type)).toEqual(["paragraph", "image"]);
+    expect((firstItem?.content?.[0] as BlockNode | undefined)?.content).toEqual([{ type: "text", text: "Item with image" }]);
     expect(secondItem?.content?.map(node => node.type)).toEqual(["paragraph"]);
     expect(imported.sections[0]?.content).toHaveLength(1);
   });

@@ -143,11 +143,9 @@ function runContent(paragraph: Element, relationships: Map<string, { target: str
   const process = (element: Element) => {
     if (element.namespaceURI !== WORD_NS) {
       if (element.localName === "drawing" || element.localName === "pict") {
-        const blip = element.getElementsByTagNameNS("http://schemas.openxmlformats.org/drawingml/2006/main", "blip").item(0) as Element | null;
-        const id = blip?.getAttributeNS(REL_NS, "embed");
-        const relationship = id ? relationships.get(id) : undefined;
-        const asset = relationship ? media.get(relationship.target) : undefined;
-        if (asset) inline.push({ type: "text", text: "[Image]" });
+        // The drawing is imported as a block-level image by imagesFromParagraph.
+        // Do not insert a textual placeholder here, otherwise the imported paragraph
+        // displays a duplicate "[Image]" label beside the actual image node.
       }
       return;
     }
