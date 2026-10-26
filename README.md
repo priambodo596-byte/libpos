@@ -54,6 +54,12 @@ convetlib adalah library/SDK editor dokumen berbasis TypeScript yang dirancang a
 - Optional host-provided image resolver; remote images are not fetched implicitly.
 - DOCX import and pixel-perfect HTML/CSS conversion are not implemented yet.
 
+### `@convetlib/pdf`
+
+- Semantic text-first PDF export through `exportPdf(document, options?)`.
+- Supports page geometry, paragraphs, headings, explicit page breaks, simple tables, and automatic overflow pagination.
+- Uses standard Helvetica fonts; custom fonts and image embedding are not implemented yet.
+
 ### `@convetlib/templates`
 
 - Scalar placeholders with nested paths such as `{{ surat.nomor }}`.
@@ -349,7 +355,7 @@ Integrasi browser dan HTML importer memiliki cakupan yang konservatif. Uji HTML 
 | `@convetlib/web-components` | Adapter Web Components | Direncanakan |
 | `@convetlib/layout` | Pagination dan layout halaman | Direncanakan |
 | `@convetlib/docx` | Export DOCX semantik | Fondasi ekspor tersedia; import direncanakan |
-| `@convetlib/pdf` | Export PDF | Direncanakan |
+| `@convetlib/pdf` | Export PDF semantik | Fondasi tersedia; font/gambar lanjutan direncanakan |
 | `@convetlib/templates` | Template dan placeholder | Fondasi tersedia |
 | `@convetlib/review` | Comments, suggestions, track changes | Direncanakan |
 
