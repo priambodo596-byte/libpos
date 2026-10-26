@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+﻿import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import type { BlockNode, DocumentJSON, PageSetup, Section } from "@convetlib/core";
 
@@ -239,23 +239,48 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
         const rows = tableRows(block);
         if (!rows.length) { y -= paragraphGap; continue; }
         const columns = Math.max(...rows.map(row => row.length));
-        const cellWidth = maxWidth / columns;
+        // columnWidths are relative weights (e.g. [2, 1, 1]); absent/invalid values use equal columns.
+        const rawWidths = block.attrs?.columnWidths;
+        const weights = Array.isArray(rawWidths) && rawWidths.length >= columns
+          ? Array.from({ length: columns }, (_, i) => typeof rawWidths[i] === "number" && Number.isFinite(rawWidths[i]) && rawWidths[i] > 0 ? rawWidths[i] as number : 1)
+          : Array.from({ length: columns }, () => 1);
+        const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+        const widths = weights.map(value => maxWidth * value / totalWeight);
+        const starts = widths.map((_, i) => dimensions.left + widths.slice(0, i).reduce((sum, value) => sum + value, 0));
         const padding = 4;
-        for (const row of rows) {
+        const rowLayouts = rows.map(row => {
           const cells = Array.from({ length: columns }, (_, i) => row[i] ?? "");
-          const wrapped = cells.map(value => wrapText(value, regular, bodySize, Math.max(10, cellWidth - padding * 2), Boolean(options.fontBytes)));
-          const rowHeight = Math.max(bodySize * 1.5, ...wrapped.map(lines => lines.length * lineHeight)) + padding * 2;
-          ensureSpace(rowHeight);
+          const wrapped = cells.map((value, i) => wrapText(value, regular, bodySize, Math.max(10, widths[i]! - padding * 2), Boolean(options.fontBytes)));
+          const height = Math.max(bodySize * 1.5, ...wrapped.map(lines => lines.length * lineHeight)) + padding * 2;
+          return { wrapped, height };
+        });
+        const drawRow = (layout: typeof rowLayouts[number]) => {
           for (let i = 0; i < columns; i += 1) {
-            const x = dimensions.left + i * cellWidth;
-            page.drawRectangle({ x, y: y - rowHeight, width: cellWidth, height: rowHeight, borderColor: rgb(0.45, 0.45, 0.45), borderWidth: 0.5 });
+            const x = starts[i]!;
+            const width = widths[i]!;
+            page.drawRectangle({ x, y: y - layout.height, width, height: layout.height, borderColor: rgb(0.45, 0.45, 0.45), borderWidth: 0.5 });
             let textY = y - padding - bodySize;
-            for (const line of wrapped[i] ?? []) {
+            for (const line of layout.wrapped[i] ?? []) {
               page.drawText(line, { x: x + padding, y: textY, size: bodySize, font: regular, color: rgb(0, 0, 0) });
               textY -= lineHeight;
             }
           }
-          y -= rowHeight;
+          y -= layout.height;
+        };
+        for (let rowIndex = 0; rowIndex < rowLayouts.length; rowIndex += 1) {
+          const layout = rowLayouts[rowIndex]!;
+          const availableHeight = y - dimensions.bottom;
+          const repeatedHeaderHeight = rowIndex > 0 ? rowLayouts[0]!.height : 0;
+          if (layout.height + repeatedHeaderHeight > availableHeight && rowIndex > 0) {
+            newPage();
+            // Repeat the first row as a header when a table continues on another page.
+            const header = rowLayouts[0]!;
+            drawRow(header);
+          } else if (layout.height > availableHeight && rowIndex === 0) {
+            // A single exceptionally tall row cannot be split safely; render it on a fresh page once.
+            newPage();
+          }
+          drawRow(layout);
         }
         y -= paragraphGap;
         continue;
@@ -275,7 +300,7 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
       const headingLevel = block.type === "heading" && typeof block.attrs?.level === "number" ? block.attrs.level : 0;
       const size = headingLevel ? Math.max(bodySize, 20 - Math.min(6, headingLevel) * 1.5) : bodySize;
       const font = headingLevel ? bold : regular;
-      const prefix = block.type === "bulletList" ? "• " : block.type === "orderedList" ? "1. " : "";
+      const prefix = block.type === "bulletList" ? "â€¢ " : block.type === "orderedList" ? "1. " : "";
       drawWrapped(prefix + text, font, size, paragraphGap);
     }
   }

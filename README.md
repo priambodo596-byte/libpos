@@ -57,7 +57,7 @@ convetlib adalah library/SDK editor dokumen berbasis TypeScript yang dirancang a
 ### `@convetlib/pdf`
 
 - Semantic text-first PDF export through `exportPdf(document, options?)`.
-- Supports page geometry, paragraphs, headings, explicit page breaks, simple tables, and automatic overflow pagination.
+- Supports page geometry, paragraphs, headings, explicit page breaks, automatic overflow pagination, and table cells with wrapped text. Tables accept relative `columnWidths` weights on the table node (for example `[3, 1]`) and repeat their first row as a header when continuing to a new page.
 - Supports optional embedded/subsetted TrueType/OpenType fonts via `fontBytes` and optional bold/italic font variants. Marked text supports bold, italic, underline, and strike. Standard Helvetica remains the fallback; PNG/JPEG image embedding and repeating headers/footers/page numbering are also supported.
 
 ### `@convetlib/templates`
@@ -366,7 +366,7 @@ Package yang berstatus direncanakan pada tabel tersebut belum tersedia sebagai p
 Repository ini sedang dikembangkan dan **belum merupakan editor dokumen enterprise lengkap yang siap dipakai produksi tanpa integrasi tambahan**.
 
 - Belum ada renderer UI lengkap atau adapter React/Web Components.
-- DOCX export baru tersedia dalam cakupan semantik dasar; DOCX import, PDF export, dan pagination engine lengkap belum tersedia. Fondasi pagination berbasis tinggi blok dari host serta aturan `keepWithNext` sudah tersedia; pemecahan baris paragraf dan aturan layout kompleks belum tersedia.
+- DOCX export baru tersedia dalam cakupan semantik dasar; DOCX import dan pagination engine lengkap belum tersedia. PDF table layout supports weighted columns, wrapped cell text, and repeated first-row headers when tables continue to another page; merged-cell layout and splitting a single oversized row are not implemented. Fondasi pagination berbasis tinggi blok dari host serta aturan `keepWithNext` sudah tersedia; pemecahan baris paragraf dan aturan layout kompleks belum tersedia.
 - Seleksi lintas section untuk blok teks tingkat atas pada body didukung dalam batas planner; seleksi lintas header/body/footer dan struktur bersarang lintas section tetap belum didukung.
 - Clipboard struktural gambar/tabel serta impor HTML campuran paragraf-gambar-tabel tersedia dalam cakupan konservatif; fidelitas penuh HTML/CSS, tabel kompleks, dan impor gambar biner otomatis belum didukung.
 - Pengujian IME sistem operasi nyata dan audit screen reader manual masih perlu dilakukan.

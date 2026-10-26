@@ -35,6 +35,29 @@ describe("PDF export adapter", () => {
     expect(loaded.getPageCount()).toBeGreaterThan(1);
   });
 
+  it("wraps long table cells and continues rows onto subsequent pages", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const rows = [["Item", "Description"], ...Array.from({ length: 70 }, (_, i) => [String(i + 1), `A long description for row ${i + 1} that should wrap inside a table cell rather than overflow its column.`])];
+    const doc = createDocument({ ids, content: [f.table(rows)] });
+    const bytes = await exportPdf(doc);
+    const loaded = await PDFDocument.load(bytes);
+    expect(loaded.getPageCount()).toBeGreaterThan(1);
+    expect(bytes.byteLength).toBeGreaterThan(3000);
+  });
+
+  it("supports weighted column widths stored on the table node", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const table = f.table([["Wide column", "Narrow"], ["Longer content fits the wide column", "x"]]);
+    table.attrs = { columnWidths: [3, 1] };
+    const doc = createDocument({ ids, content: [table] });
+    const bytes = await exportPdf(doc);
+    const loaded = await PDFDocument.load(bytes);
+    expect(loaded.getPageCount()).toBe(1);
+    expect(bytes.byteLength).toBeGreaterThan(1000);
+  });
+
   it("embeds resolved PNG image bytes in the exported PDF", async () => {
     const ids = createSequentialIdGenerator();
     const f = createNodeFactory(ids);
