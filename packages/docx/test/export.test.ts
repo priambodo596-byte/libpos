@@ -105,6 +105,20 @@ describe("DOCX export adapter", () => {
     expect(secondItem?.content?.[0]).toMatchObject({ type: "paragraph", content: [{ type: "text", text: "Second parent" }] });
   });
 
+  it("imports Word table geometry, cell shading, vertical alignment, spans, and borders", async () => {
+    const zip = new JSZip();
+    zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:tbl><w:tblPr><w:tblW w:w="9000" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr><w:tr><w:trPr><w:trHeight w:val="480"/></w:trPr><w:tc><w:tcPr><w:tcW w:w="4500" w:type="dxa"/><w:gridSpan w:val="2"/><w:shd w:fill="DDEEFF"/><w:vAlign w:val="center"/><w:tcBorders><w:top w:val="single" w:sz="8" w:color="336699"/><w:left w:val="nil"/></w:tcBorders></w:tcPr><w:p><w:r><w:t>Styled cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:sectPr/></w:body></w:document>`);
+    const bytes = await zip.generateAsync({ type: "uint8array" });
+    const imported = await importDocx(bytes);
+    const table = imported.sections[0]?.content[0] as BlockNode | undefined;
+    expect(table).toMatchObject({ type: "table", attrs: { width: 9000, layout: "fixed" } });
+    const row = table?.content?.[0] as BlockNode | undefined;
+    const cell = row?.content?.[0] as BlockNode | undefined;
+    expect(row).toMatchObject({ type: "tableRow", attrs: { height: 480 } });
+    expect(cell).toMatchObject({ type: "tableCell", attrs: { width: 4500, colspan: 2, backgroundColor: "#DDEEFF", verticalAlign: "center", borderTop: "1.3333333333333333px solid #336699", borderLeft: "none" } });
+    expect(Schema.create().validate(imported)).toEqual([]);
+  });
+
   it("imports safe hyperlinks and default section headers and footers", async () => {
     const zip = new JSZip();
     zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body><w:p><w:hyperlink r:id="rLink"><w:r><w:t>Open site</w:t></w:r></w:hyperlink></w:p><w:sectPr><w:headerReference w:type="default" r:id="rHeader"/><w:footerReference w:type="default" r:id="rFooter"/></w:sectPr></w:body></w:document>`);

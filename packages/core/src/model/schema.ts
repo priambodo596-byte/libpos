@@ -244,13 +244,23 @@ export const CORE_NODE_SPECS: readonly NodeSpec[] = [
     attrs: { start: { default: 1, validate: isPositiveInt } },
   },
   { name: "listItem", kind: "block", content: { children: "block", allow: ["block"], min: 1 } },
-  { name: "table", kind: "block", groups: ["block"], content: { children: "block", allow: ["tableRow"], min: 1 } },
-  { name: "tableRow", kind: "block", content: { children: "block", allow: ["tableCell"], min: 1 } },
+  { name: "table", kind: "block", groups: ["block"], content: { children: "block", allow: ["tableRow"], min: 1 }, attrs: { width: { validate: isPositiveNumber }, layout: { validate: (v) => v === "fixed" || v === "autofit" } } },
+  { name: "tableRow", kind: "block", content: { children: "block", allow: ["tableCell"], min: 1 }, attrs: { height: { validate: isPositiveNumber } } },
   {
     name: "tableCell",
     kind: "block",
     content: { children: "block", allow: ["block"], min: 1 },
-    attrs: { colspan: { default: 1, validate: isPositiveInt }, rowspan: { default: 1, validate: isPositiveInt } },
+    attrs: {
+      colspan: { default: 1, validate: isPositiveInt },
+      rowspan: { default: 1, validate: isPositiveInt },
+      width: { validate: isPositiveNumber },
+      backgroundColor: { validate: (v) => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v) },
+      verticalAlign: { validate: (v) => v === "top" || v === "center" || v === "bottom" },
+      borderTop: optionalString,
+      borderRight: optionalString,
+      borderBottom: optionalString,
+      borderLeft: optionalString,
+    },
   },
 ];
 

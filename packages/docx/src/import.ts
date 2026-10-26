@@ -362,16 +362,54 @@ function numberingFor(paragraph: Element, numbering: Map<string, NumberingInfo>)
 function blockFromElement(element: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>, styles: Map<string, ParagraphStyle>, characterStyles: Map<string, CharacterStyle>): BlockNode | undefined {
   if (element.localName === "p") return makeParagraph(element, relationships, media, factory, styles, characterStyles);
   if (element.localName === "tbl") {
+    const tableProps = elements(element, "tblPr")[0];
+    const tableWidth = elements(tableProps ?? element, "tblW")[0];
+    const widthValue = attr(tableWidth, "w");
+    const widthType = attr(tableWidth, "type");
+    const tableAttrs: Record<string, string | number> = {};
+    if (widthValue && widthType !== "auto" && Number(widthValue) > 0) tableAttrs.width = Number(widthValue);
+    const layout = attr(elements(tableProps ?? element, "tblLayout")[0], "type");
+    if (layout === "fixed" || layout === "autofit") tableAttrs.layout = layout;
     const rows: BlockNode[] = [];
     for (const row of elements(element, "tr")) {
+      const rowProps = elements(row, "trPr")[0];
+      const rowHeight = attr(elements(rowProps ?? row, "trHeight")[0], "val");
+      const rowAttrs: Record<string, string | number> = {};
+      if (rowHeight && Number(rowHeight) > 0) rowAttrs.height = Number(rowHeight);
       const cells: BlockNode[] = [];
       for (const cell of elements(row, "tc")) {
+        const cellProps = elements(cell, "tcPr")[0];
+        const widthNode = elements(cellProps ?? cell, "tcW")[0];
+        const cellWidth = attr(widthNode, "w");
+        const cellWidthType = attr(widthNode, "type");
+        const attrs: Record<string, string | number> = {};
+        if (cellWidth && cellWidthType !== "auto" && Number(cellWidth) > 0) attrs.width = Number(cellWidth);
+        const gridSpan = attr(elements(cellProps ?? cell, "gridSpan")[0], "val");
+        if (gridSpan && Number(gridSpan) > 1) attrs.colspan = Number(gridSpan);
+        const vertical = attr(elements(cellProps ?? cell, "vAlign")[0], "val");
+        if (vertical === "center" || vertical === "bottom" || vertical === "top") attrs.verticalAlign = vertical;
+        const shade = attr(elements(cellProps ?? cell, "shd")[0], "fill");
+        if (shade && /^[0-9a-f]{6}$/i.test(shade) && shade.toLowerCase() !== "auto") attrs.backgroundColor = "#" + shade;
+        const borders = elements(cellProps ?? cell, "tcBorders")[0];
+        if (borders) for (const side of ["top", "right", "bottom", "left"] as const) {
+          const border = elements(borders, side)[0];
+          if (!border) continue;
+          const borderValue = attr(border, "val");
+          const key = "border" + side[0]!.toUpperCase() + side.slice(1);
+          if (borderValue === "nil" || borderValue === "none") { attrs[key] = "none"; continue; }
+          const borderColor = attr(border, "color");
+          const color = borderColor && /^[0-9a-f]{6}$/i.test(borderColor) ? "#" + borderColor : "#000000";
+          const size = Number(attr(border, "sz"));
+          const width = Number.isFinite(size) && size > 0 ? Math.max(0.5, size / 6) : 1;
+          const styles: Record<string, string> = { dashed: "dashed", dashSmallGap: "dashed", dotted: "dotted", double: "double", wave: "solid", single: "solid" };
+          attrs[key] = `${width}px ${styles[borderValue ?? "single"] ?? "solid"} ${color}`;
+        }
         const content = elements(cell, "p").map(p => makeParagraph(p, relationships, media, factory, styles, characterStyles));
-        cells.push(factory.block("tableCell", content.length ? content : [factory.paragraph()]));
+        cells.push(factory.block("tableCell", content.length ? content : [factory.paragraph()], attrs));
       }
-      if (cells.length) rows.push(factory.block("tableRow", cells));
+      if (cells.length) rows.push(factory.block("tableRow", cells, rowAttrs));
     }
-    return rows.length ? factory.block("table", rows) : undefined;
+    return rows.length ? factory.block("table", rows, tableAttrs) : undefined;
   }
   return undefined;
 }
