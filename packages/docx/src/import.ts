@@ -136,7 +136,21 @@ function runContent(paragraph: Element, relationships: Map<string, { target: str
       for (const child of elements(element, "br").concat(elements(element, "cr"))) { void child; inline.push({ type: "hardBreak" }); }
       // Drawing nodes are imported as editable block-level image nodes by blockFromElement.
     } else if (element.localName === "hyperlink") {
+      const relationshipId = element.getAttributeNS(REL_NS, "id");
+      const relationship = relationshipId ? relationships.get(relationshipId) : undefined;
+      const anchor = element.getAttributeNS(WORD_NS, "anchor");
+      const href = relationship?.target ?? (anchor ? "#" + anchor : undefined);
+      const start = inline.length;
       for (const child of elements(element, "r")) process(child);
+      if (href && /^(https?:\/\/|mailto:|#)/i.test(href)) {
+        for (let index = start; index < inline.length; index += 1) {
+          const item = inline[index];
+          if (item && "text" in item && typeof item.text === "string") {
+            const marks = item.marks ?? [];
+            inline[index] = { type: "text", text: item.text, marks: [...marks, { type: "link", attrs: { href } }] };
+          }
+        }
+      }
     }
   };
   for (let i = 0; i < paragraph.childNodes.length; i += 1) {
@@ -253,7 +267,12 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
       const id = rel.getAttribute("Id");
       const target = rel.getAttribute("Target");
       const type = rel.getAttribute("Type") || undefined;
-      if (!id || !target || rel.getAttribute("TargetMode") === "External") continue;
+      if (!id || !target) continue;
+      const external = rel.getAttribute("TargetMode") === "External";
+      if (external) {
+        if (type?.endsWith("/hyperlink") && /^(https?:\/\/|mailto:)/i.test(target)) relationships.set(id, { target, type });
+        continue;
+      }
       const normalized = target.startsWith("/") ? target.slice(1) : target.startsWith("word/") ? target : `word/${target.replace(/^\.\//, "")}`;
       if (normalized.split("/").includes("..")) continue;
       relationships.set(id, { target: normalized, ...(type ? { type } : {}) });
@@ -313,8 +332,29 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
       if (element.localName === "p") content.push(...imagesFromParagraph(element, relationships, media, factory));
     }
   }
-  const section = first(body, "sectPr") ? readPageSetup(documentXml) : defaultPageSetup();
+  const sectionProperties = first(body, "sectPr");
+  const section = sectionProperties ? readPageSetup(documentXml) : defaultPageSetup();
   const doc = createDocument({ ids, title: options.title ?? "Imported DOCX", content: content.length ? content : [factory.paragraph()], page: section, now: options.now ?? new Date().toISOString() });
+  const importSectionPart = async (relationshipType: "header" | "footer"): Promise<BlockNode[] | undefined> => {
+    const reference = elements(sectionProperties ?? body, relationshipType + "Reference").find(item => !item.getAttributeNS(WORD_NS, "type") || item.getAttributeNS(WORD_NS, "type") === "default");
+    const relationshipId = reference?.getAttributeNS(REL_NS, "id");
+    const relationship = relationshipId ? relationships.get(relationshipId) : undefined;
+    if (!relationship || !relationship.type?.endsWith("/" + relationshipType) || !zip.file(relationship.target)) return undefined;
+    const part = await readXml(zip, relationship.target, xmlLimit);
+    const root = part.documentElement as unknown as Element;
+    const blocks: BlockNode[] = [];
+    for (let i = 0; i < root.childNodes.length; i += 1) {
+      const child = root.childNodes.item(i);
+      if (child?.nodeType !== 1) continue;
+      const node = blockFromElement(child as unknown as Element, relationships, media, factory);
+      if (node) blocks.push(node);
+    }
+    return blocks;
+  };
+  const header = await importSectionPart("header");
+  const footer = await importSectionPart("footer");
+  if (header) doc.sections[0]!.header = header;
+  if (footer) doc.sections[0]!.footer = footer;
   return doc;
 }
 

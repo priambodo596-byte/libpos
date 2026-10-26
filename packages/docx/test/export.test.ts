@@ -89,6 +89,20 @@ describe("DOCX export adapter", () => {
     expect(list?.content?.[0]).toMatchObject({ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "First" }] }] });
   });
 
+  it("imports safe hyperlinks and default section headers and footers", async () => {
+    const zip = new JSZip();
+    zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body><w:p><w:hyperlink r:id="rLink"><w:r><w:t>Open site</w:t></w:r></w:hyperlink></w:p><w:sectPr><w:headerReference w:type="default" r:id="rHeader"/><w:footerReference w:type="default" r:id="rFooter"/></w:sectPr></w:body></w:document>`);
+    zip.file("word/_rels/document.xml.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rLink" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/path" TargetMode="External"/><Relationship Id="rHeader" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>`);
+    zip.file("word/header1.xml", `<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>Company Header</w:t></w:r></w:p></w:hdr>`);
+    zip.file("word/footer1.xml", `<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>Page Footer</w:t></w:r></w:p></w:ftr>`);
+    const bytes = await zip.generateAsync({ type: "uint8array" });
+    const imported = await importDocx(bytes);
+    const paragraph = imported.sections[0]?.content[0];
+    expect(paragraph?.content?.[0]).toMatchObject({ type: "text", text: "Open site", marks: [{ type: "link", attrs: { href: "https://example.com/path" } }] });
+    expect(imported.sections[0]?.header?.[0]?.content?.[0]).toMatchObject({ type: "text", text: "Company Header" });
+    expect(imported.sections[0]?.footer?.[0]?.content?.[0]).toMatchObject({ type: "text", text: "Page Footer" });
+  });
+
   it("rejects invalid ZIP input and enforces the configured input limit", async () => {
     await expect(importDocx(new Uint8Array([1, 2, 3]))).rejects.toThrow();
     await expect(importDocx(new Uint8Array(32), { maxInputBytes: 16 })).rejects.toThrow(/16 bytes/);
