@@ -107,6 +107,15 @@ function readRunFormat(props: Element | undefined): RunFormat {
   toggle("u", "underline");
   toggle("strike", "strike");
   toggle("dstrike", "strike");
+  const fonts = elements(props, "rFonts")[0];
+  const fontFamily = attr(fonts, "ascii") ?? attr(fonts, "hAnsi") ?? attr(fonts, "eastAsia");
+  if (fontFamily) result.fontFamily = fontFamily;
+  const size = attr(elements(props, "sz")[0], "val");
+  if (size !== undefined && Number.isFinite(Number(size)) && Number(size) > 0) result.fontSize = String(Number(size) / 2);
+  const color = attr(elements(props, "color")[0], "val");
+  if (color && /^[0-9a-f]{6}$/i.test(color)) result.color = "#" + color;
+  const highlight = attr(elements(props, "highlight")[0], "val");
+  if (highlight && !["none", "nil"].includes(highlight)) result.highlight = highlight;
   const vertical = attr(elements(props, "vertAlign")[0], "val");
   if (vertical !== undefined) result.vertical = vertical;
   return result;
@@ -134,6 +143,16 @@ function paragraphMarks(run: Element, paragraphStyleId?: string, characterStyles
   if (resolved.italic === true) marks.push({ type: "italic" });
   if (resolved.underline === true) marks.push({ type: "underline" });
   if (resolved.strike === true) marks.push({ type: "strike" });
+  const textStyle: Record<string, string | number> = {};
+  if (typeof resolved.fontFamily === "string") textStyle.fontFamily = resolved.fontFamily;
+  if (typeof resolved.fontSize === "string" && Number.isFinite(Number(resolved.fontSize)) && Number(resolved.fontSize) > 0) textStyle.fontSize = Number(resolved.fontSize);
+  if (typeof resolved.color === "string") textStyle.color = resolved.color;
+  if (Object.keys(textStyle).length) marks.push({ type: "textStyle", attrs: textStyle });
+  if (typeof resolved.highlight === "string") {
+    const highlightColors: Record<string, string> = { yellow: "#ffff00", green: "#00ff00", cyan: "#00ffff", magenta: "#ff00ff", blue: "#0000ff", red: "#ff0000", darkBlue: "#000080", darkCyan: "#008080", darkGreen: "#008000", darkMagenta: "#800080", darkRed: "#800000", darkYellow: "#808000", darkGray: "#808080", lightGray: "#c0c0c0", black: "#000000" };
+    const color = highlightColors[resolved.highlight] ?? (/^[0-9a-f]{6}$/i.test(resolved.highlight) ? "#" + resolved.highlight : undefined);
+    if (color) marks.push({ type: "highlight", attrs: { color } });
+  }
   if (resolved.vertical === "superscript") marks.push({ type: "superscript" });
   if (resolved.vertical === "subscript") marks.push({ type: "subscript" });
   return marks;

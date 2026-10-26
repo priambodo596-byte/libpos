@@ -142,6 +142,16 @@ describe("DOCX export adapter", () => {
     expect(textNode && "marks" in textNode ? textNode.marks?.some(mark => mark.type === "bold" || mark.type === "italic") : false).toBe(false);
   });
 
+  it("imports Word font family, point size, text color, and highlight formatting", async () => {
+    const zip = new JSZip();
+    zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="24"/><w:color w:val="C00000"/><w:highlight w:val="yellow"/></w:rPr><w:t>Formatted text</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`);
+    const bytes = await zip.generateAsync({ type: "uint8array" });
+    const imported = await importDocx(bytes);
+    const textNode = imported.sections[0]?.content[0]?.content?.[0];
+    expect(textNode).toMatchObject({ type: "text", text: "Formatted text", marks: [{ type: "textStyle", attrs: { fontFamily: "Arial", fontSize: 12, color: "#C00000" } }, { type: "highlight", attrs: { color: "#ffff00" } }] });
+    expect(Schema.create().validate(imported)).toEqual([]);
+  });
+
   it("keeps images within the matching numbered list item", async () => {
     const zip = new JSZip();
     zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><w:body><w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="7"/></w:numPr></w:pPr><w:r><w:t>Item with image</w:t></w:r><w:r><w:drawing><wp:inline><wp:extent cx="304800" cy="304800"/><a:graphic><a:graphicData><a:blip r:embed="rImage"/></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="7"/></w:numPr></w:pPr><w:r><w:t>Following item</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`);
