@@ -41,6 +41,24 @@ describe("Schema.validate: image free positioning (positionX/positionY)", () => 
   });
 });
 
+describe("Schema.validate: manual-design canvas (section.kind, paragraph position)", () => {
+  it("accepts a canvas section with a free-positioned text box", () => {
+    const d = broken((d) => {
+      section(d).kind = "canvas";
+      const p = blockOf(d, "paragraph");
+      p.attrs = { ...(p.attrs ?? {}), positionX: 40, positionY: 0, boxWidth: 220 };
+    });
+    expect(coreSchema.validate(d as never)).toEqual([]);
+  });
+  it("rejects an unknown section kind", () => {
+    expect(codes(broken((d) => { section(d).kind = "freeform"; }))).toContain("malformed");
+  });
+  it("rejects invalid text box geometry", () => {
+    expect(coreSchema.validate(broken((d) => { blockOf(d, "paragraph").attrs = { positionX: -5, positionY: 1 }; }) as never).length).toBeGreaterThan(0);
+    expect(coreSchema.validate(broken((d) => { blockOf(d, "paragraph").attrs = { positionX: 5, positionY: 1, boxWidth: 0 }; }) as never).length).toBeGreaterThan(0);
+  });
+});
+
 describe("Schema.validate: accepts", () => {
   it("a document using every built-in node and mark", () => {
     expect(coreSchema.validate(makeDoc())).toEqual([]);

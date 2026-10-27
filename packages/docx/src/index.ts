@@ -91,12 +91,28 @@ function paragraph(node: BlockNode): Paragraph {
     : level === 3 ? HeadingLevel.HEADING_3
     : level === 4 ? HeadingLevel.HEADING_4
     : level === 5 ? HeadingLevel.HEADING_5 : HeadingLevel.HEADING_6;
+  const spacingBefore = numberAttr(node, "spacingBefore");
+  const spacingAfter = numberAttr(node, "spacingAfter");
+  const indentLeft = numberAttr(node, "indentLeft");
+  const indentRight = numberAttr(node, "indentRight");
+  const firstLineIndent = numberAttr(node, "firstLineIndent");
+  const lineSpacing = numberAttr(node, "lineSpacing");
   const options = {
     children: paragraphChildren(node),
     ...(align ? { alignment: align } : {}),
     ...(node.type === "heading" ? { heading } : {}),
     ...(node.type === "codeBlock" ? { style: "No Spacing" } : {}),
     ...(node.type === "listItem" ? { bullet: { level: 0 } } : {}),
+    ...((spacingBefore !== undefined || spacingAfter !== undefined || lineSpacing !== undefined) ? { spacing: {
+      ...(spacingBefore !== undefined && spacingBefore >= 0 ? { before: Math.round(spacingBefore) } : {}),
+      ...(spacingAfter !== undefined && spacingAfter >= 0 ? { after: Math.round(spacingAfter) } : {}),
+      ...(lineSpacing !== undefined && lineSpacing > 0 ? { line: Math.round(lineSpacing), lineRule: "exact" as const } : {}),
+    } } : {}),
+    ...((indentLeft !== undefined || indentRight !== undefined || firstLineIndent !== undefined) ? { indent: {
+      ...(indentLeft !== undefined && indentLeft >= 0 ? { left: Math.round(indentLeft) } : {}),
+      ...(indentRight !== undefined && indentRight >= 0 ? { right: Math.round(indentRight) } : {}),
+      ...(firstLineIndent !== undefined ? { firstLine: Math.round(firstLineIndent) } : {}),
+    } } : {}),
   };
   return new Paragraph(options);
 }

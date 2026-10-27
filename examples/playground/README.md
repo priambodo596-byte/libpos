@@ -34,3 +34,11 @@ Images can be dragged anywhere on the page in the Preview view (pointer events; 
 - **Region:** the image stays in the region it belongs to (`header`, `content` or `footer`); it is only drawn at an absolute page position. Moving a block between regions is not implemented.
 - **Legacy images** (no coordinates) keep the previous flow layout. Clicking Kiri / Tengah / Kanan sets `align` and clears the free position.
 - **Export:** DOCX writes a page-anchored floating image (`wp:anchor`, EMU offsets); PDF draws at `px × 0.75` pt with the Y axis flipped. Re-importing an exported DOCX does not yet restore anchored positions (anchored drawings are imported as flow images).
+
+## Menyimpan proyek
+
+Tombol **Simpan Proyek** (atau `Ctrl+S`; `Ctrl+Shift+S` = simpan sebagai) menyimpan seluruh desain (halaman alur, canvas, gambar, posisi) sebagai satu berkas JSON dokumen biasa, `<judul>.convetlib.json`. Berkas yang sama dibuka lagi lewat **Open .docx/.dotx/.json**.
+
+- **Lokal** (`localhost`, `127.0.0.1` atau `file:`): berkas ditulis ke komputer Anda lewat File System Access API (Chrome/Edge). Anda memilih lokasi sekali; `Ctrl+S` berikutnya menimpa berkas yang sama. Peramban tanpa API ini mengunduh berkas ke folder Unduhan.
+- **Website** (host lain): dialog arahan menjelaskan bahwa proyek tidak disimpan di server, ke mana berkas pergi (jendela Simpan sebagai atau folder Unduhan), cara memilih folder, saran cadangan, dan cara membukanya kembali. Dialog bisa disembunyikan dengan "Jangan tampilkan lagi".
+- Paksa mode untuk pengujian dengan `?storage=local` atau `?storage=web` pada URL.

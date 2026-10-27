@@ -178,6 +178,11 @@ export const CORE_NODE_SPECS: readonly NodeSpec[] = [
     groups: ["block"],
     content: { children: "inline" },
     attrs: {
+      // Manual-design canvas text box: CSS px (96 dpi) from the page's top-left edge. Both positionX and positionY
+      // must be present for the paragraph to leave normal flow; boxWidth (px) optionally fixes the box width.
+      positionX: { validate: isNonNegativeNumber },
+      positionY: { validate: isNonNegativeNumber },
+      boxWidth: { validate: isPositiveNumber },
       align: { default: "left", validate: (v) => ["left", "center", "right", "justify"].includes(v as string) },
       spacingBefore: { validate: (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 },
       spacingAfter: { validate: (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 },
@@ -387,6 +392,9 @@ export class Schema {
         return;
       }
       this.claimId(ctx, section.id, base);
+      if (section.kind !== undefined && section.kind !== "flow" && section.kind !== "canvas") {
+        add("malformed", `${base}.kind`, 'Section kind must be "flow" or "canvas"');
+      }
       this.checkPage(section.page, `${base}.page`, ctx);
       if (section.header) this.checkChildren(ctx, "header", blocks, section.header, `${base}.header`);
       if (section.footer) this.checkChildren(ctx, "footer", blocks, section.footer, `${base}.footer`);

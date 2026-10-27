@@ -21,8 +21,79 @@
 /* Free-positioned images: coordinates (px, 96 dpi) are measured from the page edge, so .paper is the containing block. */
 .paper{position:relative}
 .doc-block.image-block{position:static}
-.document-image.free-positioned-image{position:absolute;z-index:5;display:block;margin:0;max-width:none;overflow:visible;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+.document-image.free-positioned-image{position:absolute;z-index:5;display:block;width:max-content;height:max-content;min-width:0;min-height:0;margin:0;padding:0;max-width:none;overflow:visible;justify-content:flex-start;align-items:flex-start;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
 .document-image.free-positioned-image img{max-width:none}
 .document-image.is-moving{cursor:grabbing;z-index:30;opacity:.92}
 .paper img.image-selected{outline:2px solid #3978ef;outline-offset:-2px}
 @media print{.paper img.image-selected{outline:0}}
+
+.doc-block.is-selected-image{outline:2px solid #2563eb;outline-offset:3px}.doc-block.is-selected-image .document-image{cursor:move}
+
+
+/* ---- Left pane tabs + PAGES panel -------------------------------------------------------------------------- */
+.left-tabs{flex-shrink:0}.left-pane{display:flex;flex-direction:column;flex:1;min-height:0}.left-pane[hidden]{display:none!important}.side-tab b{color:var(--green);font-weight:400;margin-left:3px}
+.pages-actions{padding:10px 12px 0;flex-shrink:0}.pages-actions .panel-action{width:100%;padding:8px;background:#172b49;color:#dceaff;border:1px solid #31588a;border-radius:3px;margin-bottom:6px}.pages-actions .panel-copy{font-size:10px;margin:0 0 8px}
+.page-list{flex:1;min-height:0;overflow:auto;padding:6px 12px 16px;display:flex;flex-direction:column;gap:14px}
+.page-card{position:relative;display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid #252a35;border-radius:4px;background:#0b0e14;cursor:pointer}
+.page-card:hover{border-color:#3b5f9a}.page-card.is-active{border-color:var(--blue);background:#101b2e}
+.page-card-head{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:10px;letter-spacing:.8px;color:#aab8cc}
+.page-card-head b{color:#e1e7f1;font-weight:400}.page-badge{padding:1px 5px;border:1px solid #31588a;color:#9cc0ff;border-radius:3px;font-size:9px}.page-badge.canvas{border-color:#2f8f6b;color:#6ee7b7}
+.page-card-del{margin-left:auto;background:#111722;border:1px solid #303746;color:#aab8cc;padding:2px 6px;font-size:9px;border-radius:3px;cursor:pointer}.page-card-del:hover{border-color:#d85252;color:#fff}
+.page-thumb{position:relative;overflow:hidden;background:#fff;box-shadow:0 2px 10px #0006;margin:0 auto;pointer-events:none}
+.page-thumb-inner{position:absolute;left:0;top:0;transform-origin:top left;background:#fff;color:#000;font:11pt Arial,sans-serif;line-height:normal}
+.page-thumb-inner p{margin:0;white-space:pre-wrap}.page-thumb-inner h2{font:inherit;margin:0}.page-thumb-inner table{width:100%;border-collapse:collapse}.page-thumb-inner td{padding:0;vertical-align:top}
+.page-thumb-inner .doc-block,.page-thumb-inner .canvas-box{outline:0!important}.page-thumb-inner .box-handle,.page-thumb-inner .box-resize,.page-thumb-inner .page-marker{display:none!important}
+.page-card-meta{font-size:9px;color:#718097}
+.page-indicator{margin-left:6px;padding:4px 8px;border:1px solid #2b303b;color:#9cc0ff;font-size:10px;white-space:nowrap;background:#101d31}
+
+/* ---- Page markers inside the preview ----------------------------------------------------------------------- */
+.page-marker{display:flex;align-items:center;gap:8px;margin:14px 0 8px;color:#94a3b8;font:9px ui-monospace,monospace;letter-spacing:.8px;user-select:none;-webkit-user-select:none}
+.page-marker:before,.page-marker:after{content:"";flex:1;border-top:1px dashed #cbd5e1}
+@media print{.page-marker{display:none!important}}
+
+/* ---- Manual-design canvas ------------------------------------------------------------------------------------ */
+.canvas-sheet{position:relative;box-sizing:border-box;margin-top:28px;background:#fff;overflow:hidden;outline:1px dashed #8bb1ff;outline-offset:0}
+.canvas-sheet-label{position:absolute;left:8px;top:6px;z-index:2;color:#8aa4d6;font:9px ui-monospace,monospace;letter-spacing:.8px;pointer-events:none;user-select:none}
+.canvas-sheet .doc-block.canvas-box{position:absolute;z-index:4;min-width:24px}
+.canvas-sheet .canvas-box>p,.canvas-sheet .canvas-box>h2{outline:1px dashed transparent;outline-offset:3px;min-height:1.2em;padding:2px 3px}
+.canvas-sheet .canvas-box:hover>p,.canvas-sheet .canvas-box.is-selected-box>p{outline-color:#3978ef}
+.canvas-sheet .canvas-box.is-selected-box>p{outline-style:solid}
+.box-handle{position:absolute;left:-1px;top:-17px;width:22px;height:16px;display:none;align-items:center;justify-content:center;background:#3978ef;color:#fff;font:10px ui-monospace,monospace;border-radius:3px 3px 0 0;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+.box-resize{position:absolute;right:-5px;bottom:-5px;width:10px;height:10px;display:none;background:#3978ef;border:1px solid #fff;cursor:ew-resize;touch-action:none}
+.canvas-box:hover .box-handle,.canvas-box.is-selected-box .box-handle,.canvas-box:hover .box-resize,.canvas-box.is-selected-box .box-resize{display:flex}
+.canvas-box.is-moving{opacity:.9;z-index:30}.canvas-box.is-moving .box-handle{cursor:grabbing}
+.canvas-sheet .document-image{margin:0}
+@media print{.canvas-sheet{margin:0;outline:0;break-after:page}.canvas-sheet-label,.box-handle,.box-resize{display:none!important}}
+
+/* ---- Drag & drop of INSPECTOR fields ---------------------------------------------------------------------- */
+.fieldrow[draggable="true"]{cursor:grab}.fieldrow.is-field-dragging{opacity:.45}.field-grip{align-self:center;color:#59657a;padding:0 2px 0 4px;font-size:12px;user-select:none}
+.fieldrow:hover .field-grip{color:#8fa7cc}
+.field-drop-target{outline:2px solid #2563eb!important;outline-offset:2px;background:rgba(57,120,239,.10)!important}
+.canvas-sheet.field-drop-target{outline:2px dashed #2563eb!important;outline-offset:-2px;background:#f4f8ff!important}
+
+.page-card-actions{display:flex;align-items:center;gap:3px;margin-left:auto}.page-card-move{background:#111722;border:1px solid #303746;color:#aab8cc;padding:2px 5px;font-size:10px;border-radius:3px;cursor:pointer}.page-card-move:hover:not(:disabled){border-color:#5288d8;color:#fff}.page-card-move:disabled{opacity:.3;cursor:not-allowed}.page-card-head .page-card-actions .page-card-del{margin-left:0}
+
+.shortcut-dialog{width:min(520px,calc(100vw - 32px));border:1px solid #39465a;border-radius:12px;background:#111722;color:#e6edf7;padding:0;box-shadow:0 24px 80px #0009}
+.shortcut-dialog::backdrop{background:#050810b8;backdrop-filter:blur(3px)}
+.shortcut-dialog form{padding:22px}
+.shortcut-dialog h2{font-size:18px;margin:0 0 16px}
+.shortcut-dialog p{display:flex;align-items:center;gap:6px;margin:10px 0;color:#c5d0e0}
+.shortcut-dialog kbd{display:inline-block;padding:3px 7px;border:1px solid #46546b;border-bottom-width:2px;border-radius:5px;background:#202a3a;color:#fff;font:12px ui-monospace,monospace}
+.shortcut-actions{display:flex;justify-content:flex-end;margin-top:18px}
+.shortcut-actions button{background:#315b99;color:#fff;border:0;border-radius:6px;padding:8px 14px;cursor:pointer}
+#paper .letterhead .header-block-list hr{border:0;border-top:2px solid #111;width:100%;margin:5px 0 8px;display:block}
+#paper .letterhead .header-block-list .doc-block:has(>hr){width:100%;min-height:3px}
+/* DOCUMENT.JSON follows the active page/canvas */
+#json{white-space:pre;overflow:auto}
+.json-follow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:5px 10px;border-bottom:1px solid var(--line);font:10px ui-monospace,monospace;color:var(--muted)}
+.json-follow label{display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text)}
+.json-follow button{background:#0d1119;color:#d7dfed;border:1px solid #303746;padding:3px 7px;font:10px ui-monospace,monospace;cursor:pointer}
+.json-follow button:hover{border-color:var(--blue)}
+#jsonFollowInfo{color:var(--green);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Save project guidance dialog (website mode) */
+.save-guide-dialog p{display:block}
+.save-guide-dialog ol{margin:10px 0 0;padding-left:20px;color:#c5d0e0;line-height:1.55}
+.save-guide-dialog li{margin:8px 0}
+.guide-skip{display:flex;align-items:center;gap:6px;margin-top:14px;color:#9fb0c8;cursor:pointer}
+.shortcut-actions{gap:8px}
+.shortcut-actions button.secondary{background:#202a3a;color:#d7dfed;border:1px solid #46546b}

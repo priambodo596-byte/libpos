@@ -105,6 +105,8 @@ export interface PageSetup {
 
 export interface Section {
   id: NodeId;
+  /** `canvas` sections are manual-design pages whose blocks are placed freely (positionX/positionY). Default: `flow`. */
+  kind?: "flow" | "canvas";
   page: PageSetup;
   /** Header/footer for the whole section. Different first/even pages are a later-stage extension. */
   header?: BlockNode[];

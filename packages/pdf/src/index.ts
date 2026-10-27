@@ -167,11 +167,14 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
     const ensureSpace = (height: number) => {
       if (y - height < dimensions.bottom) newPage();
     };
-    const drawWrapped = (text: string, font: PDFFont, size: number, gapAfter = 0) => {
+    const drawWrapped = (text: string, font: PDFFont, size: number, gapAfter = 0, align: unknown = "left") => {
       const lines = wrapText(text, font, size, maxWidth, Boolean(options.fontBytes));
       for (const line of lines) {
         ensureSpace(size * 1.35);
-        page.drawText(line, { x: dimensions.left, y: y - size, size, font, color: rgb(0, 0, 0) });
+        const lineWidth = font.widthOfTextAtSize(safePdfText(line, Boolean(options.fontBytes)), size);
+        const normalizedAlign = align === "center" || align === "right" || align === "justify" ? align : "left";
+        const x = normalizedAlign === "center" ? dimensions.left + Math.max(0, (maxWidth - lineWidth) / 2) : normalizedAlign === "right" ? dimensions.left + Math.max(0, maxWidth - lineWidth) : dimensions.left;
+        page.drawText(line, { x, y: y - size, size, font, color: rgb(0, 0, 0) });
         y -= size * 1.35;
       }
       y -= gapAfter;
@@ -248,7 +251,9 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
           const width = requestedWidth * scale;
           const height = requestedHeight * scale;
           ensureSpace(height + paragraphGap);
-          page.drawImage(embedded, { x: dimensions.left, y: y - height, width, height });
+          const imageAlign = block.attrs?.align;
+          const imageX = imageAlign === "center" ? dimensions.left + (maxWidth - width) / 2 : imageAlign === "right" ? dimensions.width - dimensions.right - width : dimensions.left;
+          page.drawImage(embedded, { x: imageX, y: y - height, width, height });
           y -= height + paragraphGap;
         } else {
           drawWrapped(nodeText(block), regular, bodySize, paragraphGap);
@@ -325,7 +330,7 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
       const size = headingLevel ? Math.max(bodySize, 20 - Math.min(6, headingLevel) * 1.5) : bodySize;
       const font = headingLevel ? bold : regular;
       const prefix = block.type === "bulletList" ? "â€¢ " : block.type === "orderedList" ? "1. " : "";
-      drawWrapped(prefix + text, font, size, paragraphGap);
+      drawWrapped(prefix + text, font, size, paragraphGap, block.attrs?.align ?? block.attrs?.alignment);
     }
   }
 
