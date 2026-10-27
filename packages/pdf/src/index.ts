@@ -102,6 +102,26 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number, u
  * Export a document to PDF using standard Helvetica fonts.
  * This is a semantic text-first renderer; it does not promise HTML/CSS pixel parity.
  */
+/** CSS px (96 dpi) to PDF points (72 dpi). Model coordinates positionX/positionY are CSS px from the page's top-left corner. */
+const PX_TO_PT = 0.75;
+/**
+ * Resolves the absolute page rectangle of a free-positioned image, in PDF points with a bottom-left origin.
+ * Returns undefined when the node has no (valid) positionX/positionY, so legacy images keep their flow layout.
+ */
+function freeImageRect(attrs: Record<string, unknown> | undefined, natural: { width: number; height: number }, page: { width: number; height: number }): { x: number; y: number; width: number; height: number } | undefined {
+  const px = attrs?.positionX;
+  const py = attrs?.positionY;
+  if (typeof px !== "number" || typeof py !== "number" || !Number.isFinite(px) || !Number.isFinite(py) || px < 0 || py < 0) return undefined;
+  const w = typeof attrs?.width === "number" && attrs.width > 0 ? attrs.width : natural.width;
+  const h = typeof attrs?.height === "number" && attrs.height > 0 ? attrs.height : natural.height;
+  const width = w * PX_TO_PT;
+  const height = h * PX_TO_PT;
+  // PDF's Y axis points up while CSS' points down, so flip against the page height.
+  const x = Math.min(px * PX_TO_PT, Math.max(0, page.width - width));
+  const y = Math.max(0, Math.min(page.height - py * PX_TO_PT - height, page.height - height));
+  return { x, y, width, height };
+}
+
 export async function exportPdf(document: DocumentJSON, options: PdfExportOptions = {}): Promise<Uint8Array> {
   if (!document || !Array.isArray(document.sections) || document.sections.length === 0) {
     throw new TypeError("A document with at least one section is required");
@@ -216,7 +236,11 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
             embedded = undefined;
           }
         }
-        if (embedded) {
+        const freeContent = embedded ? freeImageRect(block.attrs, embedded, dimensions) : undefined;
+        if (embedded && freeContent) {
+          // Free-positioned content image: absolute on the page where it would have flowed; consumes no flow height.
+          page.drawImage(embedded, freeContent);
+        } else if (embedded) {
           const requestedWidth = typeof block.attrs?.width === "number" && block.attrs.width > 0 ? block.attrs.width : embedded.width;
           const requestedHeight = typeof block.attrs?.height === "number" && block.attrs.height > 0 ? block.attrs.height : embedded.height;
           const maxImageHeight = dimensions.height - dimensions.top - dimensions.bottom;
@@ -327,6 +351,8 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
           try {
             const resolved = await options.resolveImage(source);
             const embedded = resolved.type === "png" ? await pdf.embedPng(resolved.data) : await pdf.embedJpg(resolved.data);
+            const free = freeImageRect(block.attrs, embedded, dimensions);
+            if (free) { page.drawImage(embedded, free); continue; }
             const requestedWidth = typeof block.attrs?.width === "number" && block.attrs.width > 0 ? block.attrs.width : embedded.width;
             const requestedHeight = typeof block.attrs?.height === "number" && block.attrs.height > 0 ? block.attrs.height : embedded.height;
             const scale = Math.min(1, contentWidth / requestedWidth, 100 / requestedHeight);

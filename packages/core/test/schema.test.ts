@@ -19,6 +19,28 @@ function broken(mutate: (d: Loose) => void): unknown {
 const section = (d: Loose) => d.sections[0];
 const blockOf = (d: Loose, type: string): Loose => section(d).content.find((b: Loose) => b.type === type);
 
+describe("Schema.validate: image free positioning (positionX/positionY)", () => {
+  const withPos = (x: unknown, y: unknown) => broken((d) => { const a = blockOf(d, "image").attrs; a.positionX = x; a.positionY = y; });
+  it("accepts non-negative finite coordinates, including 0", () => {
+    expect(coreSchema.validate(withPos(120.5, 0) as never)).toEqual([]);
+  });
+  it("accepts legacy images without coordinates", () => expect(coreSchema.validate(makeDoc())).toEqual([]));
+  it("rejects negative, non-numeric and non-finite coordinates", () => {
+    expect(coreSchema.validate(withPos(-1, 5) as never).length).toBeGreaterThan(0);
+    expect(coreSchema.validate(withPos("10", 5) as never).length).toBeGreaterThan(0);
+    expect(coreSchema.validate(withPos(5, Number.NaN) as never).length).toBeGreaterThan(0);
+  });
+  it("survives JSON serialization round trip", () => {
+    const doc = withPos(33, 44);
+    const again = JSON.parse(JSON.stringify(doc));
+    expect(coreSchema.validate(again as never)).toEqual([]);
+    expect(blockOf(again, "image").attrs).toMatchObject({ positionX: 33, positionY: 44 });
+  });
+  it("does not allow position attributes on non-image nodes", () => {
+    expect(coreSchema.validate(broken((d) => { blockOf(d, "heading").attrs.positionX = 10; }) as never).length).toBeGreaterThan(0);
+  });
+});
+
 describe("Schema.validate: accepts", () => {
   it("a document using every built-in node and mark", () => {
     expect(coreSchema.validate(makeDoc())).toEqual([]);

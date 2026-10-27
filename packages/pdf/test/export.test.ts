@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import { PDFArray, PDFDocument, decodePDFRawStream, type PDFRawStream } from "pdf-lib";
 import { createDocument, createNodeFactory, createSequentialIdGenerator } from "@convetlib/core";
 import { exportPdf } from "../src/index";
 
@@ -87,6 +87,66 @@ describe("PDF export adapter", () => {
     const loaded = await PDFDocument.load(bytes);
     expect(loaded.getPageCount()).toBe(1);
     expect(bytes.byteLength).toBeGreaterThan(png.byteLength);
+  });
+
+  describe("free-positioned images", () => {
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ZkAAAAASUVORK5CYII="), c => c.charCodeAt(0));
+    /** Returns every `w 0 0 h x y cm` image placement found in the (Flate-compressed) page content streams. */
+    const placements = async (bytes: Uint8Array) => {
+      const pdf = await PDFDocument.load(bytes);
+      const contents = pdf.getPage(0).node.Contents();
+      const refs = contents instanceof PDFArray ? contents.asArray() : [contents];
+      let text = "";
+      for (const ref of refs) {
+        const stream = pdf.context.lookup(ref) as PDFRawStream;
+        text += new TextDecoder("latin1").decode(decodePDFRawStream(stream).decode()) + "\n";
+      }
+      // pdf-lib draws an image as: `1 0 0 1 x y cm` (translate), `1 0 0 1 0 0 cm` (no rotation), `w 0 0 h 0 0 cm` (scale).
+      return [...text.matchAll(/1 0 0 1 (-?[\d.]+) (-?[\d.]+) cm\s+1 0 0 1 0 0 cm\s+(-?[\d.]+) 0 0 (-?[\d.]+) 0 0 cm/g)].map(m => ({ x: Number(m[1]), y: Number(m[2]), width: Number(m[3]), height: Number(m[4]) }));
+    };
+    const build = (region: "header" | "content", attrs: Record<string, number | string>) => {
+      const ids = createSequentialIdGenerator();
+      const f = createNodeFactory(ids);
+      const doc = createDocument({ ids, content: [f.paragraph("Body")] });
+      const image = f.image("asset:logo", { alt: "Logo", width: 96, height: 48 });
+      image.attrs = { ...(image.attrs ?? {}), ...attrs };
+      if (region === "header") doc.sections[0]!.header = [image]; else doc.sections[0]!.content.unshift(image);
+      return doc;
+    };
+    const resolveImage = () => ({ data: png, type: "png" as const });
+
+    it("draws a header image at positionX/positionY (CSS px -> pt, Y axis flipped) with its size converted", async () => {
+      const bytes = await exportPdf(build("header", { positionX: 200, positionY: 100, align: "right" }), { resolveImage });
+      const pageHeight = (await PDFDocument.load(bytes)).getPage(0).getHeight();
+      const found = (await placements(bytes)).find(p => Math.abs(p.width - 72) < 0.01);
+      expect(found).toBeDefined();
+      expect(found!.height).toBeCloseTo(36, 2);
+      expect(found!.x).toBeCloseTo(150, 2); // 200px * 0.75
+      expect(found!.y).toBeCloseTo(pageHeight - 75 - 36, 2); // top edge at 100px * 0.75 from the top
+    });
+
+    it("draws a free-positioned content image absolutely without consuming flow height", async () => {
+      const bytes = await exportPdf(build("content", { positionX: 0, positionY: 0 }), { resolveImage });
+      const pageHeight = (await PDFDocument.load(bytes)).getPage(0).getHeight();
+      const found = (await placements(bytes)).find(p => Math.abs(p.width - 72) < 0.01);
+      expect(found).toBeDefined();
+      expect(found!.x).toBeCloseTo(0, 2);
+      expect(found!.y).toBeCloseTo(pageHeight - 36, 2);
+    });
+
+    it("keeps a page-bound image on the page when coordinates exceed it", async () => {
+      const bytes = await exportPdf(build("header", { positionX: 99999, positionY: 99999 }), { resolveImage });
+      const page = (await PDFDocument.load(bytes)).getPage(0);
+      const found = (await placements(bytes)).find(p => Math.abs(p.width - 72) < 0.01);
+      expect(found!.x + found!.width).toBeLessThanOrEqual(page.getWidth() + 0.01);
+      expect(found!.y).toBeGreaterThanOrEqual(0);
+    });
+
+    it("leaves legacy images without coordinates on their flow layout (size unchanged)", async () => {
+      const bytes = await exportPdf(build("header", { align: "right" }), { resolveImage });
+      const found = (await placements(bytes)).find(p => Math.abs(p.width - 96) < 0.01);
+      expect(found).toBeDefined(); // legacy path keeps px value as pt, as before
+    });
   });
 
   it("adds repeating headers, custom footers, and page-number tokens", async () => {

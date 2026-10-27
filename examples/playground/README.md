@@ -25,3 +25,12 @@ Open the local URL printed by Vite (normally `http://127.0.0.1:5173`).
 - This is a functional integration prototype, not yet a complete rich-text/WYSIWYG editing surface.
 - Text placeholders in the sample document are ordinary text tokens. Placeholder nodes are supported by the model but automatic field-value binding is not implemented yet.
 - DOCX/DOTX import and DOCX/PDF export should be checked against representative real-world templates before production use. PDF output uses the existing semantic renderer, not browser-pixel-identical HTML rendering.
+
+## Free image positioning
+
+Images can be dragged anywhere on the page in the Preview view (pointer events; `Esc` cancels a drag). On release the position is written once to the model as `attrs.positionX` / `attrs.positionY` on the `image` node.
+
+- **Coordinate system:** CSS px (96 dpi) from the top-left corner of the page edge (not the content area, margins are not subtracted). Values are clamped to `0 … pageSize − imageSize` while dragging. Zoom is compensated (`paper.style.zoom`).
+- **Region:** the image stays in the region it belongs to (`header`, `content` or `footer`); it is only drawn at an absolute page position. Moving a block between regions is not implemented.
+- **Legacy images** (no coordinates) keep the previous flow layout. Clicking Kiri / Tengah / Kanan sets `align` and clears the free position.
+- **Export:** DOCX writes a page-anchored floating image (`wp:anchor`, EMU offsets); PDF draws at `px × 0.75` pt with the Y axis flipped. Re-importing an exported DOCX does not yet restore anchored positions (anchored drawings are imported as flow images).

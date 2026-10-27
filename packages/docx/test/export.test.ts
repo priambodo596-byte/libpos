@@ -47,6 +47,53 @@ describe("DOCX export adapter", () => {
     expect(images[0]?.attrs?.src).toContain("data:image/png;base64,");
   });
 
+  describe("free-positioned images", () => {
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII="), c => c.charCodeAt(0));
+    const resolveImage = async () => ({ data: png, type: "png" as const });
+    const build = (attrs: Record<string, number | string>, region: "header" | "content" = "content") => {
+      const ids = createSequentialIdGenerator();
+      const f = createNodeFactory(ids);
+      const doc = createDocument({ ids, content: [f.paragraph("Body")] });
+      const image = f.image("fixture:logo", { alt: "Logo", width: 100, height: 50 });
+      image.attrs = { ...(image.attrs ?? {}), ...attrs };
+      if (region === "header") doc.sections[0]!.header = [image]; else doc.sections[0]!.content.push(image);
+      return doc;
+    };
+    const xml = async (bytes: Uint8Array, part = "word/document.xml") => (await JSZip.loadAsync(bytes)).file(part)!.async("string");
+
+    it("exports positionX/positionY as a page-anchored floating image (wp:anchor with EMU offsets)", async () => {
+      const bytes = await exportDocx(build({ positionX: 200, positionY: 120 }), { resolveImage });
+      const document = await xml(bytes);
+      expect(document).toContain("<wp:anchor");
+      expect(document).not.toContain("<wp:inline");
+      expect(document).toMatch(/<wp:positionH relativeFrom="page"><wp:posOffset>1905000<\/wp:posOffset><\/wp:positionH>/);
+      expect(document).toMatch(/<wp:positionV relativeFrom="page"><wp:posOffset>1143000<\/wp:posOffset><\/wp:positionV>/);
+      expect(document).toMatch(/<wp:extent cx="952500" cy="476250"/); // size preserved: 100x50 px
+    });
+
+    it("anchors a free-positioned header image inside the header part", async () => {
+      const bytes = await exportDocx(build({ positionX: 10, positionY: 20 }, "header"), { resolveImage });
+      const zip = await JSZip.loadAsync(bytes);
+      const headerPart = Object.keys(zip.files).find(name => /^word\/header\d*\.xml$/.test(name))!;
+      const header = await zip.file(headerPart)!.async("string");
+      expect(header).toContain("<wp:anchor");
+      expect(header).toMatch(/<wp:positionH relativeFrom="page"><wp:posOffset>95250<\/wp:posOffset>/);
+    });
+
+    it("keeps legacy images inline with paragraph alignment when no coordinates exist", async () => {
+      const bytes = await exportDocx(build({ align: "right" }), { resolveImage });
+      const document = await xml(bytes);
+      expect(document).toContain("<wp:inline");
+      expect(document).not.toContain("<wp:anchor");
+      expect(document).toContain('<w:jc w:val="right"/>');
+    });
+
+    it("does not float an image that has only one coordinate", async () => {
+      const document = await xml(await exportDocx(build({ positionX: 50 }), { resolveImage }));
+      expect(document).toContain("<wp:inline");
+    });
+  });
+
   it("imports exported DOCX paragraphs, headings, marks, tables, and page geometry", async () => {
     const ids = createSequentialIdGenerator();
     const f = createNodeFactory(ids);

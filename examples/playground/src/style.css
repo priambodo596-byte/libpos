@@ -18,3 +18,11 @@
 @media(max-width:1200px){.layout{grid-template-columns:minmax(180px,240px) minmax(0,1fr)}.right{display:none}.paper{padding-left:clamp(24px,5vw,56px);padding-right:clamp(24px,5vw,56px)}}
 @media(max-width:760px){.top{height:auto;min-height:58px;flex-wrap:wrap;padding:8px 10px;gap:6px}.brand{font-size:15px}.top .chip{display:none}.top button{padding:7px;font-size:10px}.layout{height:calc(100dvh - 90px);grid-template-columns:minmax(0,1fr)}.left,.right{display:none}.center{width:100%;min-width:0}.toolbar{height:auto;min-height:42px;flex-wrap:nowrap;gap:2px;padding:0 5px}.toolbar button{padding:11px 7px;font-size:9px}.toolbar-select{max-width:76px;font-size:9px}.canvas{padding:14px 8px;justify-content:center}.paper{padding-left:22px;padding-right:22px}footer{font-size:9px;padding:0 8px}}
 @media(max-width:420px){.brand small{font-size:9px}.toolbar [data-view="html"],.toolbar [data-view="text"],.toolbar [data-view="json"]{display:none}.toolbar-select{max-width:68px}.canvas{padding:10px 4px}}
+/* Free-positioned images: coordinates (px, 96 dpi) are measured from the page edge, so .paper is the containing block. */
+.paper{position:relative}
+.doc-block.image-block{position:static}
+.document-image.free-positioned-image{position:absolute;z-index:5;display:block;margin:0;max-width:none;overflow:visible;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+.document-image.free-positioned-image img{max-width:none}
+.document-image.is-moving{cursor:grabbing;z-index:30;opacity:.92}
+.paper img.image-selected{outline:2px solid #3978ef;outline-offset:-2px}
+@media print{.paper img.image-selected{outline:0}}

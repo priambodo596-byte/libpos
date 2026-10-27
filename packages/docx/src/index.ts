@@ -5,6 +5,9 @@ import {
   Header,
   Footer,
   ImageRun,
+  HorizontalPositionRelativeFrom,
+  VerticalPositionRelativeFrom,
+  TextWrappingType,
   PageBreak,
   Packer,
   Paragraph,
@@ -160,6 +163,25 @@ async function blockToParagraphs(node: BlockNode, options: DocxExportOptions): P
       const image = await options.resolveImage(src);
       const width = Math.max(1, Math.min(2000, Math.round(numberAttr(node, "width") ?? 320)));
       const height = Math.max(1, Math.min(2000, Math.round(numberAttr(node, "height") ?? 180)));
+      const positionX = numberAttr(node, "positionX");
+      const positionY = numberAttr(node, "positionY");
+      if (positionX !== undefined && positionY !== undefined && positionX >= 0 && positionY >= 0) {
+        // Free-positioned image: anchored (floating) to the page. Model coordinates are CSS px (96 dpi) from the page's top-left edge; 1 px = 9525 EMU.
+        return [new Paragraph({
+          children: [new ImageRun({
+            data: image.data,
+            type: image.type,
+            transformation: { width, height },
+            floating: {
+              horizontalPosition: { relative: HorizontalPositionRelativeFrom.PAGE, offset: Math.round(positionX * 9525) },
+              verticalPosition: { relative: VerticalPositionRelativeFrom.PAGE, offset: Math.round(positionY * 9525) },
+              allowOverlap: true,
+              behindDocument: false,
+              wrap: { type: TextWrappingType.NONE },
+            },
+          })],
+        })];
+      }
       const align = alignment(node);
       return [new Paragraph({
         children: [new ImageRun({ data: image.data, type: image.type, transformation: { width, height } })],
@@ -214,7 +236,8 @@ export async function exportDocx(document: DocumentJSON, options: DocxExportOpti
     title: document.meta.title,
     sections,
   });
-  const buffer = await Packer.toBuffer(doc);
+  // toArrayBuffer works in Node and browsers; toBuffer needs JSZip's "nodebuffer" type, which browsers do not support.
+  const buffer = await Packer.toArrayBuffer(doc);
   return new Uint8Array(buffer);
 }
 

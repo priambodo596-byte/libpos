@@ -80,6 +80,7 @@ const isString = (v: JsonValue): v is string => typeof v === "string";
 const isNonEmptyString = (v: JsonValue): boolean => typeof v === "string" && v.length > 0;
 const isPositiveInt = (v: JsonValue): boolean => typeof v === "number" && Number.isInteger(v) && v > 0;
 const isPositiveNumber = (v: JsonValue): boolean => typeof v === "number" && Number.isFinite(v) && v > 0;
+const isNonNegativeNumber = (v: JsonValue): boolean => typeof v === "number" && Number.isFinite(v) && v >= 0;
 
 function isJsonValue(v: unknown, depth = 0): v is JsonValue {
   if (depth > 64) return false;
@@ -234,6 +235,10 @@ export const CORE_NODE_SPECS: readonly NodeSpec[] = [
       width: { validate: isPositiveNumber },
       height: { validate: isPositiveNumber },
       align: { default: "center", validate: (v) => ["left", "center", "right"].includes(v as string) },
+      // Free positioning in CSS px (96 dpi) measured from the top-left corner of the page edge (not the content area).
+      // Both must be present for the image to leave normal flow; absent attributes keep the legacy flow/align layout.
+      positionX: { validate: isNonNegativeNumber },
+      positionY: { validate: isNonNegativeNumber },
     },
   },
   { name: "bulletList", kind: "block", groups: ["block"], content: { children: "block", allow: ["listItem"], min: 1 } },
