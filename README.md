@@ -22,6 +22,22 @@ convetlib adalah library/SDK editor dokumen berbasis TypeScript yang dirancang a
 - [Troubleshooting](#troubleshooting)
 - [Lisensi dan distribusi](#lisensi-dan-distribusi)
 
+## Screenshot Playground
+
+Berikut bukti tampilan Playground terbaru. Gambar disimpan di repository agar langsung tampil di halaman README GitHub.
+
+### Canvas baru dimulai dalam keadaan kosong
+
+![Playground dengan dokumen baru kosong](docs/screenshots/playground-blank-document.png)
+
+### Membuat Canvas baru
+
+![Tombol untuk membuat Canvas baru](docs/screenshots/playground-create-canvas.png)
+
+### Sinkronisasi JSON dan tampilan Canvas
+
+![Sinkronisasi JSON dengan tampilan Canvas](docs/screenshots/playground-json-sync.png)
+
 ## Fitur yang tersedia
 
 ### `@convetlib/core`
