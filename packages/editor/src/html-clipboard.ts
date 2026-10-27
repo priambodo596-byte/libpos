@@ -4,12 +4,25 @@ import type { ClipboardPayload, ClipboardRun } from "./clipboard";
 const voidTags = new Set(["br", "img", "hr", "meta", "link", "input"]);
 const blockedTags = new Set(["script", "style", "iframe", "object", "svg", "math", "video", "audio", "form"]);
 const blockTags = new Set(["p", "div", "li", "pre", "h1", "h2", "h3", "h4", "h5", "h6"]);
-const entity = (s: string) => s.replace(/&nbsp;|&#160;|&#xA0;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'");
+const namedEntities: Record<string, string> = { nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+/** Decodes entities in a single pass so `&amp;lt;` yields the literal text `&lt;`, not `<`. */
+const entity = (s: string) => s.replace(/&(?:#x([0-9a-f]{1,6})|#(\d{1,7})|([a-z]+));/gi, (whole, hex?: string, dec?: string, name?: string) => {
+  if (name) return namedEntities[name.toLowerCase()] ?? whole;
+  const code = hex !== undefined ? parseInt(hex, 16) : Number(dec);
+  if (!Number.isInteger(code) || code <= 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return whole;
+  return code === 0xa0 ? " " : String.fromCodePoint(code);
+});
 
 function attr(tag: string, name: string): string | undefined {
-  const re = new RegExp("(?:^|\\s)" + name + "\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))", "i");
-  const m = re.exec(tag);
-  return m ? entity(m[1] ?? m[2] ?? m[3] ?? "") : undefined;
+  const start = /^<\s*[a-z0-9]+/i.exec(tag);
+  const re = /([^\s"'<>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+  re.lastIndex = start ? start[0].length : 0;
+  const wanted = name.toLowerCase();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(tag))) {
+    if (m[1]!.toLowerCase() === wanted) return entity(m[2] ?? m[3] ?? m[4] ?? "");
+  }
+  return undefined;
 }
 function id(): string { return defaultIdGenerator(); }
 function safeLinkHref(value: string): string | undefined {
@@ -22,12 +35,13 @@ function safeLinkHref(value: string): string | undefined {
 /** Parses only a small allow-list of structural HTML. No style/event attributes are retained. */
 export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload | undefined {
   if (!/<\s*(?:table|ul|ol|a)\b/i.test(html) && !/<\s*img\b[^>]*\bsrc\s*=\s*(["']https?:\/\/|["']data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(html)) return undefined;
-  const tokens = html.match(/<!--[\s\S]*?-->|<[^>]*>|[^<]+/g) ?? [];
+  const tokens = html.match(/<!--[\s\S]*?-->|<(?:"[^"]*"|'[^']*'|[^>"'])*>|[^<]+/g) ?? [];
   const nodes: BlockNode[] = [];
   let paragraphRuns: ClipboardRun[] = [];
   let paragraphTag = "p";
   let marks: Array<"bold" | "italic" | "underline" | "strike" | "code" | Mark> = [];
   let blocked: string | undefined;
+  let blockedDepth = 0;
   let table: BlockNode | undefined;
   let row: BlockNode | undefined;
   let cell: BlockNode | undefined;
@@ -58,11 +72,11 @@ export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload
 
   for (const token of tokens) {
     if (token.startsWith("<!--")) continue;
-    const close = /^<\s*\/\s*([a-z0-9]+)[^>]*>$/i.exec(token);
-    const open = /^<\s*([a-z0-9]+)\b[^>]*>$/i.exec(token);
+    const close = /^<\s*\/\s*([a-z0-9]+)[\s\S]*>$/i.exec(token);
+    const open = /^<\s*([a-z0-9]+)\b[\s\S]*>$/i.exec(token);
     if (close) {
       const t = close[1]!.toLowerCase();
-      if (blocked) { if (t === blocked) blocked = undefined; continue; }
+      if (blocked) { if (t === blocked && --blockedDepth === 0) blocked = undefined; continue; }
       if (blockedTags.has(t)) continue;
       if (t === "td" || t === "th") flushCell();
       else if (t === "tr") flushRow();
@@ -78,8 +92,8 @@ export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload
     }
     if (open) {
       const t = open[1]!.toLowerCase();
-      if (blocked) { if (t === blocked) blocked = blocked; continue; }
-      if (blockedTags.has(t)) { blocked = voidTags.has(t) ? undefined : t; continue; }
+      if (blocked) { if (t === blocked) blockedDepth += 1; continue; }
+      if (blockedTags.has(t)) { if (/\/\s*>$/.test(token)) continue; blocked = voidTags.has(t) ? undefined : t; blockedDepth = blocked ? 1 : 0; continue; }
       if (t === "table") { flushParagraph(); flushTable(); table = { type: "table", id: id(), content: [] }; continue; }
       if (t === "ul" || t === "ol") {
         flushParagraph();

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { htmlToStructuralClipboardPayload } from "../src/html-clipboard";
 import { createDocument, createEditor, createNodeFactory, createSequentialIdGenerator } from "@convetlib/core";
 import { registerEditingCommands, setSelection } from "../src/index";
 import { copySelection, cutSelection, htmlToClipboardPayload, pasteClipboardPayload, type ClipboardPayload } from "../src/clipboard";
@@ -191,4 +192,30 @@ describe("clipboard interoperability", () => {
     await ed.destroy();
   });
 
+});
+
+describe("structural HTML parsing robustness", () => {
+  const textOf = (html: string) => htmlToStructuralClipboardPayload(html)?.text;
+  it("decodes entities in a single pass", () => {
+    expect(textOf("<ul><li>a &amp;lt;b&amp;gt; &#65;&#x42; &unknown;</li></ul>")).toBe("a &lt;b&gt; AB &unknown;");
+  });
+  it("keeps '>' inside quoted attribute values from leaking markup", () => {
+    const payload = htmlToStructuralClipboardPayload('<ul><li><a title="x>y" href="https://e.com">link</a> tail</li></ul>');
+    expect(payload?.text).toBe("link tail");
+    expect(JSON.stringify(payload?.nodes)).toContain("https://e.com");
+  });
+  it("reads href from the real attribute, not from text inside another attribute", () => {
+    const payload = htmlToStructuralClipboardPayload('<ul><li><a title="see href=https://evil.example" href="https://good.example">x</a></li></ul>');
+    const json = JSON.stringify(payload?.nodes);
+    expect(json).toContain('"href":"https://good.example"');
+    expect(json).not.toContain('"href":"https://evil.example"');
+  });
+  it("drops nested blocked elements completely", () => {
+    expect(textOf("<ul><li>ok</li></ul><svg><svg></svg>LEAK</svg>after")).toBe("ok\tafter");
+    expect(textOf("<ul><li>ok</li></ul><script>1</script>after")).toBe("ok\tafter");
+  });
+  it("rejects unsafe link schemes", () => {
+    const json = JSON.stringify(htmlToStructuralClipboardPayload('<ul><li><a href="javascript:alert(1)">x</a><a href=" https://ok.example">y</a></li></ul>')?.nodes);
+    expect(json).not.toContain("javascript:");
+  });
 });
