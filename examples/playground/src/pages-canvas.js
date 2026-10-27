@@ -95,7 +95,9 @@ function textBox(nextId, text, x, y, width) {
 
 function appendCanvas(doc, nextId) {
   const base = clone(doc.sections[0].page);
-  const section = { id: nextId(), kind: 'canvas', page: base, content: [textBox(nextId, 'Teks baru — klik untuk mengedit', 60, 60, 320)] };
+  // A new canvas starts blank. Text boxes are created only when the user explicitly adds one,
+  // so deleting a text block from DOCUMENT.JSON never leaves a misleading default text behind.
+  const section = { id: nextId(), kind: 'canvas', page: base, content: [] };
   doc.sections.push(section);
   return doc.sections.length - 1;
 }
