@@ -97,7 +97,9 @@ function appendCanvas(doc, nextId) {
   const base = clone(doc.sections[0].page);
   // A new canvas starts blank. Text boxes are created only when the user explicitly adds one,
   // so deleting a text block from DOCUMENT.JSON never leaves a misleading default text behind.
-  const section = { id: nextId(), kind: 'canvas', page: base, content: [] };
+  // The document schema requires at least one block per section. Keep a truly blank paragraph
+  // (no text) so the canvas is visually empty but still passes model validation.
+  const section = { id: nextId(), kind: 'canvas', page: base, content: [{ type: 'paragraph', id: nextId(), content: [] }] };
   doc.sections.push(section);
   return doc.sections.length - 1;
 }
