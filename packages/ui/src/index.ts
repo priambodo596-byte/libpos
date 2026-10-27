@@ -15,10 +15,29 @@ export const DEFAULT_TOOLBAR:readonly ToolbarItem[]=Object.freeze([
 {id:"align-justify",label:"Justify",command:"block.setAlignment",group:"block",args:{align:"justify"}},
 {id:"split",label:"New paragraph",command:"block.split",group:"insert"}]);
 /** Derives UI state from the editor without DOM or framework dependencies. */
+function findBlock(nodes: readonly import("@convetlib/core").BlockNode[], id: string): import("@convetlib/core").BlockNode | undefined {
+ for (const node of nodes) {
+  if (node.id === id) return node;
+  const nested = (node.content ?? []).filter((child): child is import("@convetlib/core").BlockNode => typeof (child as import("@convetlib/core").BlockNode).id === "string");
+  const found = findBlock(nested, id);
+  if (found) return found;
+ }
+ return undefined;
+}
+
+/** Finds a block anywhere in the document, including nested containers and section header/footer slots. */
+function findDocumentBlock(editor: Pick<Editor, "state">, id: string): import("@convetlib/core").BlockNode | undefined {
+ for (const section of editor.state.document.sections) {
+  const found = findBlock([...section.content, ...(section.header ?? []), ...(section.footer ?? [])], id);
+  if (found) return found;
+ }
+ return undefined;
+}
+
 export function getToolbarState(editor:Pick<Editor,"state"|"commands">,items:readonly ToolbarItem[]=DEFAULT_TOOLBAR):readonly ToolbarItemState[]{
  const selection=editor.state.selection;
  const id=selection&&selection.anchor.blockId===selection.head.blockId?selection.anchor.blockId:undefined;
- const block=id?editor.state.document.sections.flatMap(s=>s.content).find(b=>b.id===id):undefined;
+ const block=id?findDocumentBlock(editor,id):undefined;
  return items.map(item=>{
   let active=false;
   if(block){
