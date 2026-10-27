@@ -1,12 +1,12 @@
 # convetlib Enterprise Document Editor Library/SDK
 
-**Status:** alpha / internal development
+**Status:** beta / public testing (API masih dapat berubah)
 **Repository:** https://github.com/priambodo596-byte/libpos
 **Workspace:** `B:\\convetlib` (Windows)
 
 convetlib adalah library/SDK editor dokumen berbasis TypeScript yang dirancang agar dapat ditanamkan ke aplikasi lain. Repository ini berisi **library dan package source**, bukan aplikasi SaaS siap pakai: tidak menyediakan website, dashboard, sistem login, billing, atau backend wajib.
 
-> **Penting:** package saat ini berstatus `0.1.0-alpha.0` dan menggunakan lisensi `UNLICENSED`. Gunakan untuk pengembangan/internal sampai nama package, lisensi, API, dan kebijakan distribusi disetujui. Jangan publish ke registry publik sebelum lisensi dan kesiapan rilis ditetapkan.
+> **Status Beta:** seluruh package saat ini menggunakan versi `0.1.0-beta.0` dan lisensi **MIT** (lihat [LICENSE](LICENSE)). Beta sudah dapat diuji dan diintegrasikan, termasuk untuk penggunaan komersial sesuai ketentuan MIT. Namun, API, format dokumen, dan perilaku editor masih dapat berubah; lakukan pengujian menyeluruh dan simpan cadangan sebelum digunakan pada data produksi. Status beta bukan jaminan bahwa semua fitur enterprise sudah lengkap atau siap produksi.
 
 ## Daftar isi
 
@@ -392,7 +392,7 @@ Repository ini sedang dikembangkan dan **belum merupakan editor dokumen enterpri
 - Pengujian IME sistem operasi nyata dan audit screen reader manual masih perlu dilakukan.
 - Storage, autentikasi, authorization, dan persistence produksi harus disediakan oleh aplikasi host.
 - Collaboration contracts tidak sama dengan implementasi algoritma sinkronisasi multi-user yang siap produksi.
-- License masih `UNLICENSED`; package name dan kebijakan publikasi perlu disetujui.
+- Status rilis masih beta (`0.1.0-beta.0`); API dan perilaku dokumen dapat berubah sebelum rilis stabil.
 
 Lihat [Architecture Overview](docs/architecture/overview.md), [Stage 1 report](docs/stage-reports/stage-1.md), [Stage 2 report](docs/stage-reports/stage-2.md), dan [Stage 3 report](docs/stage-reports/stage-3.md) untuk detail keputusan, scope, dan batasan.
 
@@ -439,12 +439,14 @@ Core tidak menyimpan dokumen ke database secara otomatis. Dengarkan event `state
 
 ## Lisensi dan distribusi
 
-Package di dalam monorepo saat ini menyatakan `UNLICENSED`. Sebelum distribusi internal lintas tim atau publikasi npm:
+Repository ini menggunakan lisensi [MIT](LICENSE). Lisensi MIT mengizinkan penggunaan, penyalinan, modifikasi, distribusi, sublicensing, dan penjualan salinan software, termasuk penggunaan komersial, dengan tetap menyertakan pemberitahuan hak cipta dan izin lisensi. Software disediakan tanpa garansi; lihat teks lengkap di file `LICENSE`.
 
-1. Tentukan dan tinjau lisensi yang sesuai.
-2. Konfirmasi nama final package dan scope registry.
-3. Tinjau public API dan kompatibilitas semver.
+Sebelum rilis stabil atau publikasi package:
+
+1. Tinjau nama package dan scope registry yang akan digunakan.
+2. Tinjau public API serta kompatibilitas semver.
+3. Pastikan semua dependency dan aset pihak ketiga memiliki lisensi yang sesuai.
 4. Tentukan artefak distribusi, provenance, serta kebijakan security/maintenance.
 5. Jalankan `pnpm run verify` dan browser matrix pada lingkungan CI yang bersih.
 
-Sampai keputusan tersebut dibuat, anggap repository ini sebagai source pengembangan internal dan jangan mempublikasikan package ke registry publik.
+Versi beta boleh dibagikan untuk pengujian sesuai lisensi MIT, tetapi jangan menganggap API dan format dokumen sudah stabil. Pemilik proyek sebaiknya memastikan nama pemegang hak cipta pada file `LICENSE` benar sebelum distribusi resmi.

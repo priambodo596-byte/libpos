@@ -1,10 +1,10 @@
 {
   "name": "@convetlib/core",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0-beta.0",
   "description": "Framework-agnostic document engine: model, schema, contracts.",
   "type": "module",
   "sideEffects": false,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "files": [
     "dist"
   ],

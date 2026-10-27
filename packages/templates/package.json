@@ -1,10 +1,10 @@
-﻿{
+{
   "name": "@convetlib/templates",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0-beta.0",
   "description": "Safe, framework-agnostic document template and placeholder engine.",
   "type": "module",
   "sideEffects": false,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "files": ["dist"],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
