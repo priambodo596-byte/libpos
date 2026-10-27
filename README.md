@@ -198,25 +198,25 @@ Setelah mengubah kode, jalankan minimal `pnpm run verify`. Jika perubahan menyen
 
 ```text
 .
-â”œâ”€â”€ docs/
-â”‚   â”œâ”€â”€ architecture/
-â”‚   â”‚   â”œâ”€â”€ overview.md
-â”‚   â”‚   â””â”€â”€ adr/
-â”‚   â””â”€â”€ stage-reports/
-â”œâ”€â”€ packages/
-â”‚   â”œâ”€â”€ core/
-â”‚   â”‚   â”œâ”€â”€ src/
-â”‚   â”‚   â””â”€â”€ test/
-â”‚   â”œâ”€â”€ editor/
-â”‚   â”‚   â”œâ”€â”€ src/
-â”‚   â”‚   â””â”€â”€ test/
-â”‚   â””â”€â”€ ui/
-â”‚       â”œâ”€â”€ src/
-â”‚       â””â”€â”€ test/
-â”œâ”€â”€ package.json
-â”œâ”€â”€ pnpm-lock.yaml
-â”œâ”€â”€ pnpm-workspace.yaml
-â””â”€â”€ README.md
+|-- docs/
+|   |-- architecture/
+|   |-- screenshots/
+|   `-- stage-reports/
+|-- examples/
+|   `-- playground/
+|-- packages/
+|   |-- core/       # Model dokumen, schema, dan engine inti
+|   |-- docx/       # Import dan export DOCX
+|   |-- editor/     # Engine/adapter editor
+|   |-- pdf/        # Export PDF
+|   |-- templates/  # Template dokumen
+|   `-- ui/         # Komponen UI
+|-- LICENSE
+|-- package.json
+|-- pnpm-lock.yaml
+|-- pnpm-workspace.yaml
+|-- README.md
+`-- tsconfig.base.json
 ```
 
 ## Konfigurasi dan penggunaan dasar
