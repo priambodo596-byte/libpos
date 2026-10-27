@@ -8,17 +8,8 @@ const $ = (id) => document.getElementById(id);
 const ids = (() => { let n=0; return () => `spj-${++n}`; })();
 const n = createNodeFactory(ids);
 const p = (text, attrs) => n.paragraph(text, attrs);
-const initial = createDocument({id:'spj-playground',title:'SPJ — Surat Pertanggungjawaban Belanja',now:new Date().toISOString(),ids,content:[
- n.paragraph('PEMERINTAH PROVINSI SUMATERA SELATAN\nDINAS PENDIDIKAN\nUNIT PELAKSANA TEKNIS DINAS',{align:'center'}),
- n.paragraph('{{instansi.induk}}\n{{instansi.nama}}\n{{instansi.alamat}}',{align:'center'}),
- n.heading(2,'SURAT PERTANGGUNGJAWABAN BELANJA'),
- p('Nomor: {{surat.nomor}}',{align:'center'}),p('Yang bertanda tangan di bawah ini:'),
- p('Nama : {{ppktk.nama}}'),p('NIP : {{ppktk.nip}}'),p('Jabatan : {{ppktk.jabatan}}'),p('Unit Kerja : {{instansi.nama}}'),
- p('Menyatakan dengan sesungguhnya bahwa dana kegiatan {{kegiatan.nama}} Tahun Anggaran {{anggaran.tahun}} dengan kode rekening {{anggaran.kode_rekening}} telah digunakan sesuai peruntukannya dengan rincian sebagai berikut:'),
- n.table([['No','Uraian','Volume','Jumlah (Rp)'],['1','{{rincian.1.uraian}}','{{rincian.1.volume}}','{{rincian.1.jumlah}}'],['2','{{rincian.2.uraian}}','{{rincian.2.volume}}','{{rincian.2.jumlah}}'],['3','{{rincian.3.uraian}}','{{rincian.3.volume}}','{{rincian.3.jumlah}}'],['','','TOTAL','{{anggaran.total}}']]),
- p('Terbilang: {{anggaran.total_terbilang}}'),p('Bukti-bukti pengeluaran terlampir dan disimpan sesuai ketentuan. Apabila di kemudian hari terdapat kesalahan, kami bersedia bertanggung jawab sesuai peraturan perundang-undangan yang berlaku.'),p('{{surat.kota}}, {{surat.tanggal}}',{align:'right'}),
- p('Mengetahui, Pengguna Anggaran\n\n\n{{pejabat.nama}}\n\n\nPejabat Pelaksana Teknis Kegiatan\n{{ppktk.nama}}',{align:'center'})
-]});
+// Start with a clean, blank document. Users add their own content.
+const initial = createDocument({id:'document-playground',title:'Dokumen Baru',now:new Date().toISOString(),ids,content:[n.paragraph('')]});
 let editor = await createEditor({document:initial});
 let currentView='preview'; let lastValid=initial;
 const pathLabels={'surat.nomor':'Nomor surat','surat.tanggal':'Tanggal surat','surat.kota':'Kota','surat.perihal':'Perihal','surat.lampiran':'Lampiran','instansi.induk':'Instansi induk','instansi.nama':'Nama instansi','instansi.alamat':'Alamat','instansi.telepon':'Telepon','ppktk.nama':'Nama PPTK','ppktk.nip':'NIP','ppktk.jabatan':'Jabatan','kegiatan.nama':'Nama kegiatan','anggaran.tahun':'Tahun anggaran','anggaran.kode_rekening':'Kode rekening','anggaran.total':'Total anggaran','anggaran.total_terbilang':'Total terbilang','pejabat.nama':'Nama pejabat','rincian.1.uraian':'Uraian rincian 1','rincian.1.volume':'Volume rincian 1','rincian.1.jumlah':'Jumlah rincian 1'};
