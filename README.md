@@ -1,4 +1,4 @@
-# convetlib â€” Enterprise Document Editor Library/SDK
+# convetlib Enterprise Document Editor Library/SDK
 
 **Status:** alpha / internal development
 **Repository:** https://github.com/priambodo596-byte/libpos
