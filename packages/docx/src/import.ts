@@ -557,8 +557,8 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
   const sectionProperties = first(body, "sectPr");
   const section = sectionProperties ? readPageSetup(documentXml) : defaultPageSetup();
   const doc = createDocument({ ids, title: options.title ?? "Imported DOCX", content: content.length ? content : [factory.paragraph()], page: section, now: options.now ?? new Date().toISOString() });
-  const importSectionPart = async (relationshipType: "header" | "footer"): Promise<BlockNode[] | undefined> => {
-    const reference = elements(sectionProperties ?? body, relationshipType + "Reference").find(item => !item.getAttributeNS(WORD_NS, "type") || item.getAttributeNS(WORD_NS, "type") === "default");
+  const importSectionPart = async (relationshipType: "header" | "footer", variant: "default" | "first" | "even" = "default"): Promise<BlockNode[] | undefined> => {
+    const reference = elements(sectionProperties ?? body, relationshipType + "Reference").find(item => (item.getAttributeNS(WORD_NS, "type") || "default") === variant);
     const relationshipId = reference?.getAttributeNS(REL_NS, "id");
     const relationship = relationshipId ? relationships.get(relationshipId) : undefined;
     if (!relationship || !relationship.type?.endsWith("/" + relationshipType) || !zip.file(relationship.target)) return undefined;
@@ -629,6 +629,26 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
   const footer = await importSectionPart("footer");
   if (header) doc.sections[0]!.header = header;
   if (footer) doc.sections[0]!.footer = footer;
+  // Word only shows first-page parts when the section sets titlePg, and even-page parts when settings.xml sets
+  // evenAndOddHeaders. An enabled variant without a part is blank in Word, which the model expresses as [].
+  const flagOn = (element: Element | undefined) => {
+    if (!element) return false;
+    const value = attr(element, "val");
+    return value === undefined || !["0", "false", "off"].includes(value.toLowerCase());
+  };
+  if (sectionProperties && flagOn(elements(sectionProperties, "titlePg")[0])) {
+    doc.sections[0]!.firstPageHeader = (await importSectionPart("header", "first")) ?? [];
+    doc.sections[0]!.firstPageFooter = (await importSectionPart("footer", "first")) ?? [];
+  }
+  let evenAndOdd = false;
+  if (zip.file("word/settings.xml")) {
+    // settings.xml is auxiliary: if it is unreadable the document still imports, just without even-page variants.
+    try { evenAndOdd = flagOn(first(await readXml(zip, "word/settings.xml", xmlLimit), "evenAndOddHeaders")); } catch { evenAndOdd = false; }
+  }
+  if (evenAndOdd) {
+    doc.sections[0]!.evenPageHeader = (await importSectionPart("header", "even")) ?? [];
+    doc.sections[0]!.evenPageFooter = (await importSectionPart("footer", "even")) ?? [];
+  }
   return doc;
 }
 

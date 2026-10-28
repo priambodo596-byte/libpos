@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { PDFArray, PDFDocument, decodePDFRawStream, type PDFRawStream } from "pdf-lib";
+import { describe, expect, it, vi } from "vitest";
+import { PDFArray, PDFDocument, PDFPage, decodePDFRawStream, type PDFRawStream } from "pdf-lib";
 import { createDocument, createNodeFactory, createSequentialIdGenerator } from "@convetlib/core";
 import { exportPdf } from "../src/index";
 
@@ -184,5 +184,27 @@ describe("PDF export adapter", () => {
 
   it("rejects documents without sections", async () => {
     await expect(exportPdf({ sections: [] } as never)).rejects.toThrow(/at least one section/);
+  });
+});
+
+describe("PDF header/footer variants", () => {
+  it("draws first-page, even-page and default regions on the right pages", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const doc = createDocument({ ids, content: [f.paragraph("p1"), f.pageBreak(), f.paragraph("p2"), f.pageBreak(), f.paragraph("p3"), f.pageBreak(), f.paragraph("p4")] });
+    const s = doc.sections[0]!;
+    s.header = [f.paragraph("DH")]; s.footer = [f.paragraph("DF")];
+    s.firstPageHeader = [f.paragraph("FH")];
+    s.evenPageHeader = [f.paragraph("EH")]; s.evenPageFooter = [f.paragraph("EF")];
+    const byPage = new Map<unknown, string[]>();
+    const spy = vi.spyOn(PDFPage.prototype, "drawText").mockImplementation(function (this: PDFPage, text: string) {
+      byPage.set(this, [...(byPage.get(this) ?? []), text]);
+    });
+    try {
+      await exportPdf(doc);
+      const marks = [...byPage.values()].map(texts => texts.filter(t => /^(DH|DF|FH|FF|EH|EF)$/.test(t)));
+      // Page 1 is first (FH; footer blank because only the header variant is defined), page 2 even, page 3 default, page 4 even.
+      expect(marks).toEqual([["FH"], ["EH", "EF"], ["DH", "DF"], ["EH", "EF"]]);
+    } finally { spy.mockRestore(); }
   });
 });

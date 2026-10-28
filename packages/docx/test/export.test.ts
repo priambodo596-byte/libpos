@@ -385,3 +385,61 @@ describe("DOCX table cell and row properties", () => {
     expect(attrs.borderLeft).toBe("16px solid #000000");
   });
 });
+
+describe("DOCX first-page and even-page headers/footers", () => {
+  const text = (blocks: BlockNode[] | undefined) => JSON.stringify(blocks ?? []).match(/"text":"([^"]*)"/g)?.map(m => m.slice(8, -1)) ?? [];
+  const build = (extra: (f: ReturnType<typeof createNodeFactory>) => Record<string, BlockNode[]>) => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const doc = createDocument({ ids, content: [f.paragraph("Body")] });
+    const section = doc.sections[0]!;
+    section.header = [f.paragraph("Default header")];
+    section.footer = [f.paragraph("Default footer")];
+    Object.assign(section, extra(f));
+    return doc;
+  };
+
+  it("round-trips first-page and even-page headers/footers", async () => {
+    const doc = build(f => ({
+      firstPageHeader: [f.paragraph("First header")], firstPageFooter: [f.paragraph("First footer")],
+      evenPageHeader: [f.paragraph("Even header")], evenPageFooter: [f.paragraph("Even footer")],
+    }));
+    const imported = (await importDocx(await exportDocx(doc))).sections[0]!;
+    expect(text(imported.header)).toEqual(["Default header"]);
+    expect(text(imported.footer)).toEqual(["Default footer"]);
+    expect(text(imported.firstPageHeader)).toEqual(["First header"]);
+    expect(text(imported.firstPageFooter)).toEqual(["First footer"]);
+    expect(text(imported.evenPageHeader)).toEqual(["Even header"]);
+    expect(text(imported.evenPageFooter)).toEqual(["Even footer"]);
+  });
+
+  it("emits titlePg and evenAndOddHeaders only when variants are defined", async () => {
+    const plain = await JSZip.loadAsync(await exportDocx(build(() => ({}))));
+    expect(await plain.file("word/document.xml")!.async("string")).not.toContain("w:titlePg");
+    // The docx library writes an explicit w:val="false" for plain documents; that must read as "off".
+    expect(await plain.file("word/settings.xml")!.async("string")).toContain('<w:evenAndOddHeaders w:val="false"/>');
+    const withVariants = await JSZip.loadAsync(await exportDocx(build(f => ({ firstPageHeader: [f.paragraph("F")], evenPageFooter: [f.paragraph("E")] }))));
+    expect(await withVariants.file("word/document.xml")!.async("string")).toContain("w:titlePg");
+    const settings = await withVariants.file("word/settings.xml")!.async("string");
+    expect(settings).toContain("evenAndOddHeaders");
+    expect(settings).not.toContain('<w:evenAndOddHeaders w:val="false"/>');
+  });
+
+  it("keeps a deliberately blank first page header blank, and does not invent variants for plain documents", async () => {
+    const blank = (await importDocx(await exportDocx(build(f => ({ firstPageHeader: [], firstPageFooter: [f.paragraph("Only footer")] }))))).sections[0]!;
+    expect(text(blank.firstPageHeader)).toEqual([]);
+    expect(blank.firstPageHeader).toBeDefined();
+    expect(text(blank.firstPageFooter)).toEqual(["Only footer"]);
+    const plain = (await importDocx(await exportDocx(build(() => ({}))))).sections[0]!;
+    expect(plain.firstPageHeader).toBeUndefined();
+    expect(plain.evenPageHeader).toBeUndefined();
+  });
+
+  it("imports a document whose settings.xml is malformed without losing the rest", async () => {
+    const zip = await JSZip.loadAsync(await exportDocx(build(f => ({ evenPageHeader: [f.paragraph("Even")] }))));
+    zip.file("word/settings.xml", "<w:settings><unclosed>");
+    const imported = (await importDocx(await zip.generateAsync({ type: "uint8array" }))).sections[0]!;
+    expect(text(imported.header)).toEqual(["Default header"]);
+    expect(imported.evenPageHeader).toBeUndefined();
+  });
+});

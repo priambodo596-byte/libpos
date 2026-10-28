@@ -74,6 +74,9 @@ describe("public API surface", () => {
         "isBlockNode",
         "isTextNode",
         "parseDocument",
+        "resolveSectionHeaderFooter",
+        "sectionUsesEvenPageVariant",
+        "sectionUsesFirstPageVariant",
       ].sort(),
     );
   });

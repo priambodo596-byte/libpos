@@ -108,9 +108,21 @@ export interface Section {
   /** `canvas` sections are manual-design pages whose blocks are placed freely (positionX/positionY). Default: `flow`. */
   kind?: "flow" | "canvas";
   page: PageSetup;
-  /** Header/footer for the whole section. Different first/even pages are a later-stage extension. */
+  /** Default header/footer of the section (odd pages when even-page variants are used). */
   header?: BlockNode[];
   footer?: BlockNode[];
+  /**
+   * Header/footer for the first page of the section (Word "different first page"). Defining either one enables the
+   * variant; the other then defaults to blank. An empty array means a deliberately blank first-page header/footer.
+   */
+  firstPageHeader?: BlockNode[];
+  firstPageFooter?: BlockNode[];
+  /**
+   * Header/footer for even pages (Word "different odd & even pages"). Defining either one enables the variant; the
+   * other then defaults to blank, and `header`/`footer` apply to odd pages. A first-page variant wins on page one.
+   */
+  evenPageHeader?: BlockNode[];
+  evenPageFooter?: BlockNode[];
   content: BlockNode[];
 }
 

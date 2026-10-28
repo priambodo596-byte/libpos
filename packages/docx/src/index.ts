@@ -23,7 +23,7 @@ import {
   type IRunOptions,
   type ParagraphChild,
 } from "docx";
-import type { BlockNode, DocumentJSON, Inline, PageSetup } from "@convetlib/core";
+import { sectionUsesEvenPageVariant, sectionUsesFirstPageVariant, type BlockNode, type DocumentJSON, type Inline, type PageSetup } from "@convetlib/core";
 
 export interface DocxExportOptions {
   /** Resolve an image source to bytes. Remote fetching is deliberately delegated to the host. */
@@ -298,23 +298,44 @@ export async function exportDocx(document: DocumentJSON, options: DocxExportOpti
     throw new TypeError("A document with at least one section is required");
   }
   const sections = [];
+  let anyEvenVariant = false;
   for (const section of document.sections) {
     const children: Array<Paragraph | Table> = [];
     for (const block of section.content) children.push(...await blockToParagraphs(block, options));
     if (!children.length) children.push(new Paragraph({ text: "" }));
-    const headerChildren: Array<Paragraph | Table> = [];
-    for (const block of section.header ?? []) headerChildren.push(...await blockToParagraphs(block, options));
-    const footerChildren: Array<Paragraph | Table> = [];
-    for (const block of section.footer ?? []) footerChildren.push(...await blockToParagraphs(block, options));
+    const regionChildren = async (blocks: readonly BlockNode[] | undefined) => {
+      const result: Array<Paragraph | Table> = [];
+      for (const block of blocks ?? []) result.push(...await blockToParagraphs(block, options));
+      return result;
+    };
+    // A Header/Footer part needs at least one paragraph; an enabled variant with no content is a deliberately blank region.
+    const variantChildren = async (blocks: readonly BlockNode[] | undefined) => {
+      const children = await regionChildren(blocks);
+      return children.length ? children : [new Paragraph({})];
+    };
+    const variantHeader = async (blocks: readonly BlockNode[] | undefined) => new Header({ children: await variantChildren(blocks) });
+    const variantFooter = async (blocks: readonly BlockNode[] | undefined) => new Footer({ children: await variantChildren(blocks) });
+    const headerChildren = await regionChildren(section.header);
+    const footerChildren = await regionChildren(section.footer);
+    const usesFirst = sectionUsesFirstPageVariant(section);
+    const usesEven = sectionUsesEvenPageVariant(section);
+    const headers: Record<string, Header> = {};
+    const footers: Record<string, Footer> = {};
+    if (headerChildren.length) headers.default = new Header({ children: headerChildren });
+    if (footerChildren.length) footers.default = new Footer({ children: footerChildren });
+    if (usesFirst) { headers.first = await variantHeader(section.firstPageHeader); footers.first = await variantFooter(section.firstPageFooter); }
+    if (usesEven) { headers.even = await variantHeader(section.evenPageHeader); footers.even = await variantFooter(section.evenPageFooter); }
+    anyEvenVariant ||= usesEven;
     sections.push({
-      properties: { page: pageProperties(section.page) },
-      ...(headerChildren.length ? { headers: { default: new Header({ children: headerChildren }) } } : {}),
-      ...(footerChildren.length ? { footers: { default: new Footer({ children: footerChildren }) } } : {}),
+      properties: { page: pageProperties(section.page), ...(usesFirst ? { titlePage: true } : {}) },
+      ...(Object.keys(headers).length ? { headers } : {}),
+      ...(Object.keys(footers).length ? { footers } : {}),
       children,
     });
   }
   const doc = new Document({
     title: document.meta.title,
+    ...(anyEvenVariant ? { evenAndOddHeaderAndFooters: true } : {}),
     sections,
   });
   // toArrayBuffer works in Node and browsers; toBuffer needs JSZip's "nodebuffer" type, which browsers do not support.

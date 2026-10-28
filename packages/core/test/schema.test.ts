@@ -164,3 +164,21 @@ describe("Schema.extend (plugin contributions)", () => {
     expect(coreSchema.validate(doc).map((i) => i.code)).toContain("unknown-mark");
   });
 });
+
+describe("Section header/footer variants", () => {
+  const para = (id: string) => ({ type: "paragraph", id, content: [{ type: "text", text: "x" }] });
+  it("accepts first-page and even-page regions, including blank ones", () => {
+    const d = broken((d) => {
+      section(d).firstPageHeader = [para("fh")];
+      section(d).firstPageFooter = [];
+      section(d).evenPageHeader = [para("eh")];
+      section(d).evenPageFooter = [para("ef")];
+    });
+    expect(codes(d)).toEqual([]);
+  });
+  it("validates variant content and claims their ids", () => {
+    expect(codes(broken((d) => { section(d).firstPageHeader = [{ type: "mystery", id: "m1" }]; }))).toContain("unknown-node");
+    const dup = broken((d) => { section(d).evenPageFooter = [para(section(d).content[0].id)]; });
+    expect(codes(dup).length).toBeGreaterThan(0);
+  });
+});

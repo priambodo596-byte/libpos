@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
-import type { BlockNode, DocumentJSON, PageSetup, Section } from "@convetlib/core";
+import { resolveSectionHeaderFooter, type BlockNode, type DocumentJSON, type PageSetup, type Section } from "@convetlib/core";
 import { buildTableGrid, computeRowHeights, rowGroups, type GridCell } from "./table-layout";
 
 export interface PdfExportOptions {
@@ -340,7 +340,7 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
       while (display.length > 0 && regular.widthOfTextAtSize(display, 9) > maxWidth) display = display.slice(0, -1);
       page.drawText(display, { x: dimensions.left, y, size: 9, font: regular, color: rgb(0, 0, 0) });
     };
-    const drawRegion = async (blocks: BlockNode[] | undefined, region: "header" | "footer") => {
+    const drawRegion = async (blocks: readonly BlockNode[] | undefined, region: "header" | "footer") => {
       if (!blocks?.length) return;
       const contentWidth = dimensions.width - dimensions.left - dimensions.right;
       let offset = 0;
@@ -374,8 +374,10 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
         }
       }
     };
-    await drawRegion(section.header, "header");
-    await drawRegion(section.footer, "footer");
+    // First-page and even-page variants (Word "different first page" / "odd & even") pick the regions for this page.
+    const regions = resolveSectionHeaderFooter(section, { pageNumber, isFirstPageOfSection: index === 0 || pageLayouts[index - 1]!.section !== section });
+    await drawRegion(regions.header, "header");
+    await drawRegion(regions.footer, "footer");
     if (options.header) drawMarginText(options.header, dimensions.height - Math.max(18, dimensions.top * 0.55));
     if (options.footer) drawMarginText(options.footer, Math.max(8, dimensions.bottom * 0.35));
     else if (options.pageNumbering) drawMarginText("Page {{pageNumber}} of {{pageCount}}", Math.max(8, dimensions.bottom * 0.35));

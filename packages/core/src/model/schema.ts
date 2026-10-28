@@ -396,8 +396,10 @@ export class Schema {
         add("malformed", `${base}.kind`, 'Section kind must be "flow" or "canvas"');
       }
       this.checkPage(section.page, `${base}.page`, ctx);
-      if (section.header) this.checkChildren(ctx, "header", blocks, section.header, `${base}.header`);
-      if (section.footer) this.checkChildren(ctx, "footer", blocks, section.footer, `${base}.footer`);
+      for (const key of ["header", "footer", "firstPageHeader", "firstPageFooter", "evenPageHeader", "evenPageFooter"] as const) {
+        const region = section[key];
+        if (region) this.checkChildren(ctx, key.endsWith("ooter") ? "footer" : "header", blocks, region, `${base}.${key}`);
+      }
       this.checkChildren(ctx, "section", { ...blocks, min: 1 }, section.content, `${base}.content`);
     });
 
