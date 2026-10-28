@@ -86,7 +86,7 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number, u
 }
 
 /**
- * Export a document to PDF using standard Helvetica fonts.
+ * Export a document to PDF using built-in Times-family fonts by default; custom embedded fonts can be supplied for broader Unicode and exact host typography.
  * This is a semantic text-first renderer; it does not promise HTML/CSS pixel parity.
  */
 /** CSS px (96 dpi) to PDF points (72 dpi). Model coordinates positionX/positionY are CSS px from the page's top-left corner. */
@@ -124,9 +124,9 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
     const base = options.fontBytes;
     if (!base) throw new TypeError("fontBytes is required when custom font variants are provided");
     regular = await pdf.embedFont(base, { subset: true });
-    bold = options.boldFontBytes ? await pdf.embedFont(options.boldFontBytes, { subset: true }) : await pdf.embedFont(StandardFonts.HelveticaBold);
-    italic = options.italicFontBytes ? await pdf.embedFont(options.italicFontBytes, { subset: true }) : await pdf.embedFont(StandardFonts.HelveticaOblique);
-    boldItalic = options.boldItalicFontBytes ? await pdf.embedFont(options.boldItalicFontBytes, { subset: true }) : await pdf.embedFont(StandardFonts.HelveticaBoldOblique);
+    bold = options.boldFontBytes ? await pdf.embedFont(options.boldFontBytes, { subset: true }) : await pdf.embedFont(StandardFonts.TimesRomanBold);
+    italic = options.italicFontBytes ? await pdf.embedFont(options.italicFontBytes, { subset: true }) : await pdf.embedFont(StandardFonts.TimesRomanItalic);
+    boldItalic = options.boldItalicFontBytes ? await pdf.embedFont(options.boldItalicFontBytes, { subset: true }) : await pdf.embedFont(StandardFonts.TimesRomanBoldItalic);
   } else {
     // Match the enterprise DOCX default (Times New Roman family) as closely as the
     // built-in PDF fonts allow. Hosts can embed Times New Roman bytes for exact typography.
