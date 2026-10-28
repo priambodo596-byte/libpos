@@ -81,6 +81,8 @@ export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload
       if (t === "td" || t === "th") flushCell();
       else if (t === "tr") flushRow();
       else if (t === "table") flushTable();
+      else if (t === "li") { flushParagraph(); itemStack.pop(); paragraphTag = "p"; }
+      else if (t === "ul" || t === "ol") { flushParagraph(); listStack.pop(); }
       else if (blockTags.has(t)) flushParagraph();
       else if (t === "a") marks = marks.filter(m => typeof m === "string" || m.type !== "link");
       else if (["b", "strong"].includes(t)) marks = marks.filter(m => m !== "bold");

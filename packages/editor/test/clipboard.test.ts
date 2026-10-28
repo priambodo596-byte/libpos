@@ -58,6 +58,23 @@ describe("clipboard interoperability", () => {
     });
   });
 
+  it("restores the correct list parent after closing a nested list", () => {
+    const payload = htmlToClipboardPayload('<ul><li>Outer one<ul><li>Inner one</li><li>Inner two</li></ul></li><li>Outer two</li></ul>');
+    expect(payload?.nodes?.[0]).toMatchObject({
+      type: "bulletList",
+      content: [
+        { type: "listItem", content: [
+          { type: "paragraph", content: [{ type: "text", text: "Outer one" }] },
+          { type: "bulletList", content: [
+            { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Inner one" }] }] },
+            { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Inner two" }] }] }
+          ] }
+        ] },
+        { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Outer two" }] }] }
+      ]
+    });
+  });
+
   it("preserves valid HTML table spans and normalizes invalid spans", () => {
     const payload = htmlToClipboardPayload('<table><tr><td colspan="2" rowspan="3">Merged</td><td colspan="0">Fallback</td><td rowspan="999">Bounded</td></tr></table>');
     const table = payload?.nodes?.[0];
@@ -211,8 +228,8 @@ describe("structural HTML parsing robustness", () => {
     expect(json).not.toContain('"href":"https://evil.example"');
   });
   it("drops nested blocked elements completely", () => {
-    expect(textOf("<ul><li>ok</li></ul><svg><svg></svg>LEAK</svg>after")).toBe("ok\tafter");
-    expect(textOf("<ul><li>ok</li></ul><script>1</script>after")).toBe("ok\tafter");
+    expect(textOf("<ul><li>ok</li></ul><svg><svg></svg>LEAK</svg>after")).toBe("ok\nafter");
+    expect(textOf("<ul><li>ok</li></ul><script>1</script>after")).toBe("ok\nafter");
   });
   it("rejects unsafe link schemes", () => {
     const json = JSON.stringify(htmlToStructuralClipboardPayload('<ul><li><a href="javascript:alert(1)">x</a><a href=" https://ok.example">y</a></li></ul>')?.nodes);
