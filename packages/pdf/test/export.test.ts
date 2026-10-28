@@ -35,6 +35,20 @@ describe("PDF export adapter", () => {
     expect(loaded.getPageCount()).toBeGreaterThan(1);
   });
 
+  it("keeps a heading with the following paragraph when there is insufficient room at the page bottom", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const preceding = Array.from({ length: 37 }, (_, i) => f.paragraph(`Preceding paragraph ${i + 1} with a short line.`));
+    const doc = createDocument({ ids, content: [...preceding, f.heading(2, "Section heading kept together"), f.paragraph("Following paragraph stays with heading.")] });
+    const pageForText = new Map<string, PDFPage>();
+    const spy = vi.spyOn(PDFPage.prototype, "drawText").mockImplementation(function (this: PDFPage, text: string) { pageForText.set(text, this); });
+    try {
+      await exportPdf(doc);
+      expect(pageForText.get("Section heading kept together")).toBeDefined();
+      expect(pageForText.get("Following paragraph stays with heading.")).toBe(pageForText.get("Section heading kept together"));
+    } finally { spy.mockRestore(); }
+  });
+
   it("wraps long table cells and continues rows onto subsequent pages", async () => {
     const ids = createSequentialIdGenerator();
     const f = createNodeFactory(ids);

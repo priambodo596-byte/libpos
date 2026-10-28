@@ -216,7 +216,18 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
       y -= paragraphGap;
     };
 
-    for (const block of section.content) {
+    for (let blockIndex = 0; blockIndex < section.content.length; blockIndex += 1) {
+      const block = section.content[blockIndex]!;
+      if (block.type === "heading") {
+        // Keep a heading with the following text block where possible, avoiding a heading stranded at the bottom of a page.
+        const level = typeof block.attrs?.level === "number" ? block.attrs.level : 1;
+        const headingSize = Math.max(bodySize, 20 - Math.min(6, level) * 1.5);
+        const headingLines = Math.max(1, wrapText(nodeText(block), bold, headingSize, maxWidth, Boolean(options.fontBytes)).length);
+        const next = section.content[blockIndex + 1];
+        const nextIsText = next && ["paragraph", "heading", "listItem", "bulletList", "orderedList"].includes(next.type);
+        const nextLines = nextIsText ? Math.max(1, wrapText(nodeText(next), regular, bodySize, maxWidth, Boolean(options.fontBytes)).length) : 0;
+        if (nextLines) ensureSpace(headingLines * headingSize * 1.35 + nextLines * bodySize * 1.35 + paragraphGap * 2);
+      }
       if (block.type === "image") {
         const source = block.attrs?.src;
         let embedded: Awaited<ReturnType<typeof pdf.embedPng>> | Awaited<ReturnType<typeof pdf.embedJpg>> | undefined;
