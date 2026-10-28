@@ -28,7 +28,7 @@ function findBlock(nodes: readonly import("@convetlib/core").BlockNode[], id: st
 /** Finds a block anywhere in the document, including nested containers and section header/footer slots. */
 function findDocumentBlock(editor: Pick<Editor, "state">, id: string): import("@convetlib/core").BlockNode | undefined {
  for (const section of editor.state.document.sections) {
-  const found = findBlock([...section.content, ...(section.header ?? []), ...(section.footer ?? [])], id);
+  const found = findBlock([section.content, section.header ?? [], section.footer ?? [], section.firstPageHeader ?? [], section.firstPageFooter ?? [], section.evenPageHeader ?? [], section.evenPageFooter ?? []].flat(), id);
   if (found) return found;
  }
  return undefined;

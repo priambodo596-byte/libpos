@@ -29,7 +29,7 @@ export interface Selection {
 }
 
 export type ParentRef =
-  | { readonly kind: "section"; readonly id: NodeId; readonly slot?: "content" | "header" | "footer" }
+  | { readonly kind: "section"; readonly id: NodeId; readonly slot?: "content" | "header" | "footer" | "firstPageHeader" | "firstPageFooter" | "evenPageHeader" | "evenPageFooter" }
   | { readonly kind: "node"; readonly id: NodeId };
 
 export interface InsertTextOp {

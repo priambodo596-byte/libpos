@@ -11,7 +11,7 @@ function findBlock(state: EditorState, id: string): BlockNode | undefined {
     for (const n of nodes) { if (n.id === id) return n; const kids = (n.content ?? []).filter((x): x is BlockNode => typeof (x as BlockNode).id === "string"); const found = scan(kids); if (found) return found; }
     return undefined;
   };
-  for (const s of state.document.sections) { const found = scan(s.content) ?? scan(s.header ?? []) ?? scan(s.footer ?? []); if (found) return found; }
+  for (const s of state.document.sections) { const found = [s.content, s.header ?? [], s.footer ?? [], s.firstPageHeader ?? [], s.firstPageFooter ?? [], s.evenPageHeader ?? [], s.evenPageFooter ?? []].map(scan).find(Boolean); if (found) return found; }
   return undefined;
 }
 function textBlocks(nodes: BlockNode[], out: BlockNode[] = []): BlockNode[] {
@@ -46,7 +46,7 @@ function selectedBlocks(state: EditorState): ClipboardBlock[] | undefined {
   const all: BlockNode[] = [];
   for (let si = 0; si < state.document.sections.length; si++) {
     const section = state.document.sections[si]!;
-    const root = a.slot === "header" ? section.header ?? [] : a.slot === "footer" ? section.footer ?? [] : section.content;
+    const root = a.slot === "content" ? section.content : (section[a.slot] ?? []);
     all.push(...textBlocks(root));
   }
   const ai=all.findIndex(b=>b.id===s.anchor.blockId),hi=all.findIndex(b=>b.id===s.head.blockId);

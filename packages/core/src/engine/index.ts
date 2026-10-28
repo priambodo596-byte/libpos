@@ -44,15 +44,16 @@ function findBlock(doc: DocumentJSON, id: string): BlockNode | undefined {
     for (const b of list ?? []) { if (b.id === id) return b; const found = scan(blockChildren(b.content)); if (found) return found; }
     return undefined;
   };
-  for (const s of doc.sections) { const b = scan(s.content) ?? scan(s.header) ?? scan(s.footer); if (b) return b; }
+  for (const s of doc.sections) { for (const slot of ["content", "header", "footer", "firstPageHeader", "firstPageFooter", "evenPageHeader", "evenPageFooter"] as const) { const b = scan(s[slot]); if (b) return b; } }
   return undefined;
 }
 function findParent(doc: DocumentJSON, id: string): { list: BlockNode[]; index: number } | undefined {
-  const scan = (list: BlockNode[]): { list: BlockNode[]; index: number } | undefined => {
+  const scan = (list: BlockNode[] | undefined): { list: BlockNode[]; index: number } | undefined => {
+    if (!list) return undefined;
     const i = list.findIndex(b => b.id === id); if (i >= 0) return { list, index: i };
     for (const b of list) { const found = scan(blockChildren(b.content)); if (found) return found; } return undefined;
   };
-  for (const s of doc.sections) { const found = scan(s.content) ?? (s.header ? scan(s.header) : undefined) ?? (s.footer ? scan(s.footer) : undefined); if (found) return found; }
+  for (const s of doc.sections) { for (const slot of ["content", "header", "footer", "firstPageHeader", "firstPageFooter", "evenPageHeader", "evenPageFooter"] as const) { const found = scan(s[slot]); if (found) return found; } }
   return undefined;
 }
 function parentList(doc: DocumentJSON, p: ParentRef): BlockNode[] | undefined {
@@ -60,7 +61,9 @@ function parentList(doc: DocumentJSON, p: ParentRef): BlockNode[] | undefined {
   const s = doc.sections.find(x => x.id === p.id); if (!s) return undefined;
   if (p.slot === "header") return s.header ?? (s.header = []);
   if (p.slot === "footer") return s.footer ?? (s.footer = []);
-  return s.content;
+  const slot = p.slot ?? "content";
+  if (slot === "content") return s.content;
+  return s[slot] ?? (s[slot] = []);
 }
 function inlineLen(items: Inline[]) { return items.reduce((n, x) => n + (isText(x) ? x.text.length : 1), 0); }
 function split(items: Inline[], offset: number): [Inline[], Inline[]] {

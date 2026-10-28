@@ -21,7 +21,7 @@ import type { BlockNode, EditorState, Inline, Mark, Operation, Position } from "
 
 export type IdFactory = () => string;
 type TextInline = Extract<Inline, { type: "text" }>;
-type Slot = "content" | "header" | "footer";
+type Slot = "content" | "header" | "footer" | "firstPageHeader" | "firstPageFooter" | "evenPageHeader" | "evenPageFooter";
 
 const TEXT_BLOCK_TYPES: ReadonlySet<string> = new Set(["paragraph", "heading", "codeBlock"]);
 /** Containers that may be deleted when they would otherwise be left without children. */
@@ -81,6 +81,10 @@ export function locateBlock(state: EditorState, id: string): BlockLocation | und
       ["content", section.content],
       ["header", section.header],
       ["footer", section.footer],
+      ["firstPageHeader", section.firstPageHeader],
+      ["firstPageFooter", section.firstPageFooter],
+      ["evenPageHeader", section.evenPageHeader],
+      ["evenPageFooter", section.evenPageFooter],
     ];
     for (const [slot, root] of slots) {
       if (!root) continue;

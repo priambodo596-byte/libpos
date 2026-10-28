@@ -13,7 +13,7 @@ function walk(nodes: BlockNode[], visit: (n: BlockNode) => boolean): BlockNode |
   for (const n of nodes) { if (visit(n)) return n; const f = walk((n.content ?? []).filter(isBlock), visit); if (f) return f; } return undefined;
 }
 function findBlock(state: EditorState, id: string): BlockNode | undefined {
-  for (const s of state.document.sections) { const b = walk([...s.content, ...(s.header ?? []), ...(s.footer ?? [])], n => n.id === id); if (b) return b; } return undefined;
+  for (const s of state.document.sections) { const roots = [s.content, s.header ?? [], s.footer ?? [], s.firstPageHeader ?? [], s.firstPageFooter ?? [], s.evenPageHeader ?? [], s.evenPageFooter ?? []]; const b = walk(roots.flat(), n => n.id === id); if (b) return b; } return undefined;
 }
 function length(b: BlockNode): number { return (b.content ?? []).reduce((sum,n) => sum + (isBlock(n) ? 0 : isText(n) ? n.text.length : 1), 0); }
 function range(state: EditorState) {
@@ -25,7 +25,7 @@ function selectedBlockRanges(state: EditorState): SelectedBlockRange[] | undefin
   const s=state.selection;if(!s)return undefined;
   const a=locateBlock(state,s.anchor.blockId),h=locateBlock(state,s.head.blockId);
   if(!a||!h||a.sectionIndex!==h.sectionIndex||a.slot!==h.slot)return undefined;
-  const section=state.document.sections[a.sectionIndex]!,nodes=a.slot==="header"?section.header??[]:a.slot==="footer"?section.footer??[]:section.content;
+  const section=state.document.sections[a.sectionIndex]!,nodes=a.slot==="content"?section.content:(section[a.slot]??[]);
   const all:BlockNode[]=[];
   const collect=(items:BlockNode[])=>{for(const b of items){if(isTextBlock(b))all.push(b);else collect((b.content??[]).filter(isBlock));}};
   collect(nodes);
@@ -77,7 +77,7 @@ function siblingContext(state: EditorState, id: string): SiblingContext | undefi
     return undefined;
   };
   for (const section of state.document.sections) {
-    const found = scan(section.content) ?? scan(section.header ?? []) ?? scan(section.footer ?? []);
+    const found = [section.content, section.header ?? [], section.footer ?? [], section.firstPageHeader ?? [], section.firstPageFooter ?? [], section.evenPageHeader ?? [], section.evenPageFooter ?? []].map(scan).find(Boolean);
     if (found) return found;
   }
   return undefined;
