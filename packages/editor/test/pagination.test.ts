@@ -77,6 +77,34 @@ describe("block pagination foundation", () => {
     expect(result.pages[1]!.blocks[0]!.blockId).toBe(body.id);
   });
 
+  it("selects and measures first-page, even-page, and default headers/footers", () => {
+    const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
+    const doc = createDocument({ ids, page: smallPage(), content: [f.paragraph("page one"), f.paragraph("page two"), f.paragraph("page three")] });
+    const section = doc.sections[0]!;
+    section.header = [f.paragraph("default header")];
+    section.footer = [f.paragraph("default footer")];
+    section.firstPageHeader = [f.paragraph("first header")];
+    section.firstPageFooter = [f.paragraph("first footer")];
+    section.evenPageHeader = [f.paragraph("even header")];
+    section.evenPageFooter = [f.paragraph("even footer")];
+    const labels = new Map<string, number>([
+      [section.firstPageHeader[0]!.id, 40], [section.firstPageFooter[0]!.id, 20],
+      [section.evenPageHeader[0]!.id, 30], [section.evenPageFooter[0]!.id, 10],
+      [section.header[0]!.id, 15], [section.footer[0]!.id, 5],
+    ]);
+    const result = paginateDocument(doc, block => labels.get(block.id) ?? 700);
+    expect(result.pages).toHaveLength(3);
+    expect(result.pages[0]).toMatchObject({ headerHeight: 40, footerHeight: 20 });
+    expect(result.pages[0]!.header[0]!.blockId).toBe(section.firstPageHeader[0]!.id);
+    expect(result.pages[0]!.footer[0]!.blockId).toBe(section.firstPageFooter[0]!.id);
+    expect(result.pages[1]).toMatchObject({ headerHeight: 30, footerHeight: 10 });
+    expect(result.pages[1]!.header[0]!.blockId).toBe(section.evenPageHeader[0]!.id);
+    expect(result.pages[1]!.footer[0]!.blockId).toBe(section.evenPageFooter[0]!.id);
+    expect(result.pages[2]).toMatchObject({ headerHeight: 15, footerHeight: 5 });
+    expect(result.pages[2]!.header[0]!.blockId).toBe(section.header[0]!.id);
+    expect(result.pages[2]!.footer[0]!.blockId).toBe(section.footer[0]!.id);
+  });
+
   it("rejects invalid page geometry and invalid measured heights", () => {
     const ids = createSequentialIdGenerator(), f = createNodeFactory(ids);
     const doc = createDocument({ ids, page: smallPage(), content: [f.paragraph("A")] });

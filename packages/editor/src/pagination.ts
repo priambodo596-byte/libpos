@@ -1,4 +1,4 @@
-import type { BlockNode, DocumentJSON, PageSetup, Section } from "@convetlib/core";
+import { resolveSectionHeaderFooter, type BlockNode, type DocumentJSON, type PageSetup, type Section } from "@convetlib/core";
 
 export interface BlockMeasureContext {
   readonly section: Section;
@@ -27,6 +27,12 @@ export interface DocumentPage {
   readonly contentHeight: number;
   readonly usedHeight: number;
   readonly overflow: boolean;
+  /** Header blocks selected for this page, measured independently of the body content area. */
+  readonly header: readonly BlockPlacement[];
+  /** Footer blocks selected for this page, measured independently of the body content area. */
+  readonly footer: readonly BlockPlacement[];
+  readonly headerHeight: number;
+  readonly footerHeight: number;
   readonly blocks: readonly BlockPlacement[];
 }
 
@@ -39,9 +45,10 @@ export interface PaginationResult {
  * Paginates top-level blocks using host-supplied measurements.
  *
  * This is a layout foundation, not a text shaping engine: blocks are kept intact,
- * explicit pageBreak nodes start a new page, and oversized blocks are reported
- * rather than split. Header/footer rendering and line-level paragraph splitting
- * belong to a future renderer/layout stage.
+ * explicit pageBreak nodes start a new page, and oversized body blocks are reported
+ * rather than split. Header/footer blocks are selected per page variant and measured
+ * independently; actual painting, line-level paragraph splitting, and splitting large
+ * tables or images remain responsibilities of a renderer/layout stage.
  */
 export function paginateDocument(document: DocumentJSON, measureBlock: MeasureBlock): PaginationResult {
   if (typeof measureBlock !== "function") throw new TypeError("measureBlock must be a function");
@@ -63,8 +70,28 @@ export function paginateDocument(document: DocumentJSON, measureBlock: MeasureBl
     const flushPage = () => {
       if (blocks.length === 0 && sectionPageNumber > 0) return;
       sectionPageNumber += 1;
+      const pageNumber = pages.length + 1;
+      const variants = resolveSectionHeaderFooter(section, {
+        pageNumber,
+        isFirstPageOfSection: sectionPageNumber === 1,
+      });
+      const measureRegion = (region: readonly BlockNode[]): { placements: BlockPlacement[]; height: number } => {
+        let y = 0;
+        const placements = region.map((block, sourceIndex) => {
+          const height = measureBlock(block, { section, availableWidth: contentWidth, pageSetup: setup });
+          if (!Number.isFinite(height) || height < 0) {
+            throw new RangeError(`Invalid measured height for block ${block.id}: ${height}`);
+          }
+          const placement = { blockId: block.id, type: block.type, y, height, sourceIndex };
+          y += height;
+          return placement;
+        });
+        return { placements, height: y };
+      };
+      const header = measureRegion(variants.header);
+      const footer = measureRegion(variants.footer);
       pages.push({
-        pageNumber: pages.length + 1,
+        pageNumber,
         sectionId: section.id,
         sectionPageNumber,
         pageSetup: setup,
@@ -72,6 +99,10 @@ export function paginateDocument(document: DocumentJSON, measureBlock: MeasureBl
         contentHeight,
         usedHeight,
         overflow,
+        header: header.placements,
+        footer: footer.placements,
+        headerHeight: header.height,
+        footerHeight: footer.height,
         blocks,
       });
       blocks = [];
