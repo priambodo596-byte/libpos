@@ -101,8 +101,12 @@ function freeImageRect(attrs: Record<string, unknown> | undefined, natural: { wi
   if (typeof px !== "number" || typeof py !== "number" || !Number.isFinite(px) || !Number.isFinite(py) || px < 0 || py < 0) return undefined;
   const w = typeof attrs?.width === "number" && attrs.width > 0 ? attrs.width : natural.width;
   const h = typeof attrs?.height === "number" && attrs.height > 0 ? attrs.height : natural.height;
-  const width = w * PX_TO_PT;
-  const height = h * PX_TO_PT;
+  // Keep absolute images fully inside the physical page while preserving their aspect ratio.
+  const requestedWidth = w * PX_TO_PT;
+  const requestedHeight = h * PX_TO_PT;
+  const scale = Math.min(1, page.width / requestedWidth, page.height / requestedHeight);
+  const width = requestedWidth * scale;
+  const height = requestedHeight * scale;
   // PDF's Y axis points up while CSS' points down, so flip against the page height.
   const x = Math.min(px * PX_TO_PT, Math.max(0, page.width - width));
   const y = Math.max(0, Math.min(page.height - py * PX_TO_PT - height, page.height - height));

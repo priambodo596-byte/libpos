@@ -156,6 +156,18 @@ describe("PDF export adapter", () => {
       expect(found!.y).toBeGreaterThanOrEqual(0);
     });
 
+    it("scales an oversized free-positioned image to the page without distorting its aspect ratio", async () => {
+      const bytes = await exportPdf(build("content", { positionX: 0, positionY: 0, width: 2000, height: 1000 }), { resolveImage });
+      const page = (await PDFDocument.load(bytes)).getPage(0);
+      const found = (await placements(bytes)).find(p => p.width > page.getWidth() * 0.9);
+      expect(found).toBeDefined();
+      expect(found!.x).toBeGreaterThanOrEqual(0);
+      expect(found!.y).toBeGreaterThanOrEqual(0);
+      expect(found!.x + found!.width).toBeLessThanOrEqual(page.getWidth() + 0.01);
+      expect(found!.y + found!.height).toBeLessThanOrEqual(page.getHeight() + 0.01);
+      expect(found!.width / found!.height).toBeCloseTo(2, 2);
+    });
+
     it("leaves legacy images without coordinates on their flow layout (size unchanged)", async () => {
       const bytes = await exportPdf(build("header", { align: "right" }), { resolveImage });
       const found = (await placements(bytes)).find(p => Math.abs(p.width - 96) < 0.01);
