@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import type { BlockNode, DocumentJSON, PageSetup, Section } from "@convetlib/core";
+import { buildTableGrid, computeRowHeights, rowGroups, type GridCell } from "./table-layout";
 
 export interface PdfExportOptions {
   /** Font size in points for normal body text. Defaults to 11. */
@@ -61,20 +62,6 @@ function pageDimensions(setup: PageSetup) {
     top: twipsToPoints(setup.margins.top, 72),
     bottom: twipsToPoints(setup.margins.bottom, 72),
   };
-}
-
-function tableRows(node: BlockNode): string[][] {
-  const rows: string[][] = [];
-  for (const row of node.content ?? []) {
-    if (!("id" in row) || row.type !== "tableRow") continue;
-    const cells: string[] = [];
-    for (const cell of row.content ?? []) {
-      if (!("id" in cell) || cell.type !== "tableCell") continue;
-      cells.push(nodeText(cell as BlockNode));
-    }
-    if (cells.length) rows.push(cells);
-  }
-  return rows;
 }
 
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number, unicode = false): string[] {
@@ -265,9 +252,9 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
         continue;
       }
       if (block.type === "table") {
-        const rows = tableRows(block);
-        if (!rows.length) { y -= paragraphGap; continue; }
-        const columns = Math.max(...rows.map(row => row.length));
+        const grid = buildTableGrid(block, cell => nodeText(cell));
+        if (!grid.cells.length) { y -= paragraphGap; continue; }
+        const columns = grid.columns;
         // columnWidths are relative weights (e.g. [2, 1, 1]); absent/invalid values use equal columns.
         const rawWidths = block.attrs?.columnWidths;
         const weights = Array.isArray(rawWidths) && rawWidths.length >= columns
@@ -277,39 +264,47 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
         const widths = weights.map(value => maxWidth * value / totalWeight);
         const starts = widths.map((_, i) => dimensions.left + widths.slice(0, i).reduce((sum, value) => sum + value, 0));
         const padding = 4;
-        const rowLayouts = rows.map(row => {
-          const cells = Array.from({ length: columns }, (_, i) => row[i] ?? "");
-          const wrapped = cells.map((value, i) => wrapText(value, regular, bodySize, Math.max(10, widths[i]! - padding * 2), Boolean(options.fontBytes)));
-          const height = Math.max(bodySize * 1.5, ...wrapped.map(lines => lines.length * lineHeight)) + padding * 2;
-          return { wrapped, height };
-        });
-        const drawRow = (layout: typeof rowLayouts[number]) => {
-          for (let i = 0; i < columns; i += 1) {
-            const x = starts[i]!;
-            const width = widths[i]!;
-            page.drawRectangle({ x, y: y - layout.height, width, height: layout.height, borderColor: rgb(0.45, 0.45, 0.45), borderWidth: 0.5 });
-            let textY = y - padding - bodySize;
-            for (const line of layout.wrapped[i] ?? []) {
+        const cellWidth = (cell: GridCell) => widths.slice(cell.col, cell.col + cell.colspan).reduce((sum, value) => sum + value, 0);
+        const wrappedByCell = new Map<GridCell, string[]>(grid.cells.map(cell => [cell, wrapText(cell.text, regular, bodySize, Math.max(10, cellWidth(cell) - padding * 2), Boolean(options.fontBytes))]));
+        const rowHeights = computeRowHeights(grid, cell => (wrappedByCell.get(cell)?.length ?? 1) * lineHeight + padding * 2, bodySize * 1.5 + padding * 2);
+        const heightOf = (from: number, to: number) => rowHeights.slice(from, to + 1).reduce((sum, value) => sum + value, 0);
+        const groups = rowGroups(grid);
+        const drawGroup = ([first, last]: [number, number]) => {
+          const covered = new Set<string>();
+          for (const cell of grid.cells) {
+            for (let r = 0; r < cell.rowspan; r += 1) for (let c = 0; c < cell.colspan; c += 1) covered.add(`${cell.row + r}:${cell.col + c}`);
+            if (cell.row < first || cell.row > last) continue;
+            const x = starts[cell.col]!;
+            const height = heightOf(cell.row, cell.row + cell.rowspan - 1);
+            const top = y - heightOf(first, cell.row - 1);
+            page.drawRectangle({ x, y: top - height, width: cellWidth(cell), height, borderColor: rgb(0.45, 0.45, 0.45), borderWidth: 0.5 });
+            let textY = top - padding - bodySize;
+            for (const line of wrappedByCell.get(cell) ?? []) {
               page.drawText(line, { x: x + padding, y: textY, size: bodySize, font: regular, color: rgb(0, 0, 0) });
               textY -= lineHeight;
             }
           }
-          y -= layout.height;
+          // Grid slots no cell covers (ragged rows) are still drawn as empty bordered cells.
+          for (let r = first; r <= last; r += 1) for (let c = 0; c < columns; c += 1) {
+            if (covered.has(`${r}:${c}`)) continue;
+            page.drawRectangle({ x: starts[c]!, y: y - heightOf(first, r), width: widths[c]!, height: rowHeights[r]!, borderColor: rgb(0.45, 0.45, 0.45), borderWidth: 0.5 });
+          }
+          y -= heightOf(first, last);
         };
-        for (let rowIndex = 0; rowIndex < rowLayouts.length; rowIndex += 1) {
-          const layout = rowLayouts[rowIndex]!;
+        for (let groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {
+          const group = groups[groupIndex]!;
+          const groupHeight = heightOf(group[0], group[1]);
           const availableHeight = y - dimensions.bottom;
-          const repeatedHeaderHeight = rowIndex > 0 ? rowLayouts[0]!.height : 0;
-          if (layout.height + repeatedHeaderHeight > availableHeight && rowIndex > 0) {
+          const repeatedHeaderHeight = groupIndex > 0 ? heightOf(groups[0]![0], groups[0]![1]) : 0;
+          if (groupIndex > 0 && groupHeight + repeatedHeaderHeight > availableHeight) {
             newPage();
-            // Repeat the first row as a header when a table continues on another page.
-            const header = rowLayouts[0]!;
-            drawRow(header);
-          } else if (layout.height > availableHeight && rowIndex === 0) {
-            // A single exceptionally tall row cannot be split safely; render it on a fresh page once.
+            // Repeat the first row group as a header when a table continues on another page.
+            drawGroup(groups[0]!);
+          } else if (groupIndex === 0 && groupHeight > availableHeight) {
+            // A single exceptionally tall row group cannot be split safely; render it on a fresh page once.
             newPage();
           }
-          drawRow(layout);
+          drawGroup(group);
         }
         y -= paragraphGap;
         continue;
