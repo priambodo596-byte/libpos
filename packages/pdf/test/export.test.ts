@@ -186,6 +186,43 @@ describe("PDF export adapter", () => {
     expect(bytes.byteLength).toBeGreaterThan(1000);
   });
 
+  it("repeats letterhead images and margin header/footer on every generated page", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const doc = createDocument({ ids, content: [f.paragraph("Page one"), f.pageBreak(), f.paragraph("Page two"), f.pageBreak(), f.paragraph("Page three")] });
+    doc.sections[0]!.header = [f.paragraph("LETTERHEAD"), f.image("asset:letterhead", { alt: "Company letterhead", width: 24, height: 24 })];
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ZkAAAAASUVORK5CYII="), c => c.charCodeAt(0));
+    const textByPage = new Map<PDFPage, string[]>();
+    const drawText = vi.spyOn(PDFPage.prototype, "drawText").mockImplementation(function (this: PDFPage, text: string) {
+      textByPage.set(this, [...(textByPage.get(this) ?? []), text]);
+    });
+    const drawImage = vi.spyOn(PDFPage.prototype, "drawImage").mockImplementation(function (this: PDFPage) { return this; });
+    try {
+      const bytes = await exportPdf(doc, {
+        header: "CONFIDENTIAL",
+        footer: "Page {{pageNumber}} / {{pageCount}}",
+        resolveImage: source => {
+          expect(source).toBe("asset:letterhead");
+          return { data: png, type: "png" };
+        },
+      });
+      const loaded = await PDFDocument.load(bytes);
+      expect(loaded.getPageCount()).toBe(3);
+      expect(textByPage.size).toBe(3);
+      for (const texts of textByPage.values()) {
+        expect(texts).toContain("LETTERHEAD");
+        expect(texts).toContain("CONFIDENTIAL");
+      }
+      expect([...textByPage.values()].map(texts => texts.find(text => text.startsWith("Page ") && text.includes(" / ")))).toEqual([
+        "Page 1 / 3", "Page 2 / 3", "Page 3 / 3",
+      ]);
+      expect(drawImage).toHaveBeenCalledTimes(3);
+    } finally {
+      drawText.mockRestore();
+      drawImage.mockRestore();
+    }
+  });
+
   it("renders bold, italic, underline, and strike text runs", async () => {
     const ids = createSequentialIdGenerator();
     const f = createNodeFactory(ids);
