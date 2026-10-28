@@ -335,7 +335,20 @@ export async function exportDocx(document: DocumentJSON, options: DocxExportOpti
   }
   const doc = new Document({
     title: document.meta.title,
+    creator: "Convetlib",
+    subject: "Generated business document",
     ...(anyEvenVariant ? { evenAndOddHeaderAndFooters: true } : {}),
+    styles: {
+      default: {
+        document: {
+          run: { font: "Times New Roman", size: 24, color: "000000" },
+          paragraph: { spacing: { after: 120, line: 276, lineRule: "auto" } },
+        },
+        heading1: { run: { font: "Times New Roman", size: 32, bold: true, color: "000000" }, paragraph: { spacing: { before: 240, after: 120 }, keepNext: true } },
+        heading2: { run: { font: "Times New Roman", size: 28, bold: true, color: "000000" }, paragraph: { spacing: { before: 200, after: 100 }, keepNext: true } },
+        heading3: { run: { font: "Times New Roman", size: 26, bold: true, color: "000000" }, paragraph: { spacing: { before: 160, after: 80 }, keepNext: true } },
+      },
+    },
     sections,
   });
   // toArrayBuffer works in Node and browsers; toBuffer needs JSZip's "nodebuffer" type, which browsers do not support.
