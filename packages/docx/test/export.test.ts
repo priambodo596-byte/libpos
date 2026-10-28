@@ -336,3 +336,52 @@ describe("DOCX merged table cells", () => {
     expect(Number(first.attrs?.rowspan ?? 1)).toBe(1);
   });
 });
+
+describe("DOCX table cell and row properties", () => {
+  const cellAttrs = {
+    width: 3000,
+    backgroundColor: "#ffcc00",
+    verticalAlign: "center",
+    borderTop: "2px solid #ff0000",
+    borderRight: "none",
+    borderBottom: "1.5px dashed #00ff00",
+    borderLeft: "1px double #0000ff",
+  } as const;
+  const buildTable = (attrs: Record<string, string | number>, rowAttrs: Record<string, number> = {}) => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    return createDocument({ ids, content: [f.block("table", [f.block("tableRow", [f.block("tableCell", [f.paragraph("A")], attrs), f.block("tableCell", [f.paragraph("B")])], rowAttrs)])] });
+  };
+  const firstCell = (doc: ReturnType<typeof buildTable>) => {
+    const table = doc.sections[0]!.content.find(n => n.type === "table") as BlockNode;
+    return ((table.content as BlockNode[])[0]!.content as BlockNode[])[0]!;
+  };
+
+  it("round-trips width, shading, vertical alignment and borders", async () => {
+    const imported = await importDocx(await exportDocx(buildTable({ ...cellAttrs })));
+    expect(firstCell(imported).attrs).toMatchObject({
+      width: 3000, backgroundColor: "#ffcc00", verticalAlign: "center",
+      borderTop: "2px solid #ff0000", borderRight: "none", borderBottom: "1.5px dashed #00ff00", borderLeft: "1px double #0000ff",
+    });
+  });
+
+  it("round-trips row height", async () => {
+    const imported = await importDocx(await exportDocx(buildTable({}, { height: 720 })));
+    const table = imported.sections[0]!.content.find(n => n.type === "table") as BlockNode;
+    expect((table.content as BlockNode[])[0]!.attrs?.height).toBe(720);
+  });
+
+  it("ignores malformed property values instead of writing invalid OOXML", async () => {
+    const doc = buildTable({ width: -5, backgroundColor: "red", verticalAlign: "middle", borderTop: "thick wavy stuff", borderLeft: "9999px solid #000000" });
+    const bytes = await exportDocx(doc);
+    const xml = await (await JSZip.loadAsync(bytes)).file("word/document.xml")!.async("string");
+    expect(xml).not.toContain("NaN");
+    expect(xml).not.toContain('w:fill="red"');
+    const attrs = firstCell(await importDocx(bytes)).attrs ?? {};
+    expect(attrs.backgroundColor).toBeUndefined();
+    expect(attrs.verticalAlign).toBeUndefined();
+    expect(attrs.borderTop).toBeUndefined();
+    // An oversized border is clamped to the OOXML maximum (sz 96 = 16px), not dropped or written out of range.
+    expect(attrs.borderLeft).toBe("16px solid #000000");
+  });
+});

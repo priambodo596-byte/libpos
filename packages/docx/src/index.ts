@@ -1,6 +1,10 @@
 import {
   AlignmentType,
+  BorderStyle,
   Document,
+  HeightRule,
+  ShadingType,
+  VerticalAlign,
   HeadingLevel,
   Header,
   Footer,
@@ -146,6 +150,39 @@ function plainText(node: BlockNode): string {
     : "id" in child ? plainText(child as BlockNode) : "").join("");
 }
 
+const BORDER_STYLES: Record<string, (typeof BorderStyle)[keyof typeof BorderStyle]> = { solid: BorderStyle.SINGLE, dashed: BorderStyle.DASHED, dotted: BorderStyle.DOTTED, double: BorderStyle.DOUBLE };
+/** Parses a model border (`none` or `<px>px <solid|dashed|dotted|double> #rrggbb`) into OOXML border options; malformed values yield undefined. */
+function cellBorder(value: unknown): { style: (typeof BorderStyle)[keyof typeof BorderStyle]; size: number; color: string } | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  if (text === "none") return { style: BorderStyle.NONE, size: 0, color: "auto" };
+  const m = /^(\d+(?:\.\d+)?)px\s+(solid|dashed|dotted|double)\s+#([0-9a-f]{6})$/i.exec(text);
+  if (!m) return undefined;
+  const px = Number(m[1]);
+  if (!Number.isFinite(px) || px <= 0) return undefined;
+  // OOXML sz is in eighths of a point (1px = 6 units); 2..96 is the valid range.
+  return { style: BORDER_STYLES[m[2]!.toLowerCase()]!, size: Math.max(2, Math.min(96, Math.round(px * 6))), color: m[3]! };
+}
+/** Builds the DOCX cell property options for the model attributes that DOCX can represent. */
+function cellProperties(cell: BlockNode): Record<string, unknown> {
+  const options: Record<string, unknown> = {};
+  const width = numberAttr(cell, "width");
+  if (width !== undefined && Number.isFinite(width) && width > 0) options.width = { size: Math.round(width), type: WidthType.DXA };
+  const fill = stringAttr(cell, "backgroundColor");
+  if (fill && /^#[0-9a-f]{6}$/i.test(fill)) options.shading = { type: ShadingType.CLEAR, fill: fill.slice(1), color: "auto" };
+  const align = stringAttr(cell, "verticalAlign");
+  if (align === "top") options.verticalAlign = VerticalAlign.TOP;
+  else if (align === "center") options.verticalAlign = VerticalAlign.CENTER;
+  else if (align === "bottom") options.verticalAlign = VerticalAlign.BOTTOM;
+  const borders: Record<string, unknown> = {};
+  for (const side of ["Top", "Right", "Bottom", "Left"] as const) {
+    const border = cellBorder(cell.attrs?.["border" + side]);
+    if (border) borders[side.toLowerCase()] = border;
+  }
+  if (Object.keys(borders).length) options.borders = borders;
+  return options;
+}
+
 const MAX_TABLE_SPAN = 100;
 /** Coerces a colspan/rowspan model value to an integer in [1, max]; anything invalid becomes 1. */
 function boundedSpan(value: unknown, max: number): number {
@@ -162,6 +199,7 @@ async function blockToParagraphs(node: BlockNode, options: DocxExportOptions): P
     // Columns already taken by a rowSpan from an earlier row, keyed by row index. The model stores no continuation cells.
     const occupied: Array<Set<number>> = rowNodes.map(() => new Set<number>());
     let totalColumns = 0;
+    const knownWidths = new Map<number, number>();
     rowNodes.forEach((rowNode, rowIndex) => {
       const cells: TableCell[] = [];
       let column = 0;
@@ -172,6 +210,8 @@ async function blockToParagraphs(node: BlockNode, options: DocxExportOptions): P
         const columnSpan = boundedSpan(cellNode.attrs?.colspan, MAX_TABLE_SPAN);
         const rowSpan = boundedSpan(cellNode.attrs?.rowspan, rowNodes.length - rowIndex);
         for (let r = 1; r < rowSpan; r += 1) for (let c = 0; c < columnSpan; c += 1) occupied[rowIndex + r]!.add(column + c);
+        const properties = cellProperties(cellNode);
+        if (columnSpan === 1 && properties.width && !knownWidths.has(column)) knownWidths.set(column, (properties.width as { size: number }).size);
         column += columnSpan;
         totalColumns = Math.max(totalColumns, column);
         const paragraphs: Paragraph[] = [];
@@ -182,13 +222,19 @@ async function blockToParagraphs(node: BlockNode, options: DocxExportOptions): P
           else if (cellBlock.type === "image") paragraphs.push(new Paragraph({ text: options.imageFallback?.(cellBlock) ?? "[Image]" }));
         }
         if (!paragraphs.length) paragraphs.push(new Paragraph({ text: plainText(cellNode) }));
-        cells.push(new TableCell({ children: paragraphs, ...(columnSpan > 1 ? { columnSpan } : {}), ...(rowSpan > 1 ? { rowSpan } : {}) }));
+        cells.push(new TableCell({ children: paragraphs, ...properties, ...(columnSpan > 1 ? { columnSpan } : {}), ...(rowSpan > 1 ? { rowSpan } : {}) }));
       }
-      if (cells.length) rows.push(new TableRow({ children: cells }));
+      const rowHeight = numberAttr(rowNode, "height");
+      if (cells.length) rows.push(new TableRow({ children: cells, ...(rowHeight !== undefined && rowHeight > 0 ? { height: { value: Math.round(rowHeight), rule: HeightRule.ATLEAST } } : {}) }));
     });
     if (!rows.length) return [new Paragraph({ text: "" })];
     // Rows whose cells were all skipped are dropped above, so only the columns actually used are declared.
-    const columnWidths = Array.from({ length: Math.max(1, totalColumns) }, () => Math.floor(9026 / Math.max(1, totalColumns)));
+    // Columns with an explicit cell width keep it; the others share the remaining text width (9026 twips on A4 defaults).
+    const columnCount = Math.max(1, totalColumns);
+    const knownTotal = [...knownWidths.values()].reduce((sum, value) => sum + value, 0);
+    const unknownCount = columnCount - knownWidths.size;
+    const share = unknownCount > 0 ? Math.max(300, Math.floor((9026 - knownTotal) / unknownCount)) : 0;
+    const columnWidths = Array.from({ length: columnCount }, (_, index) => knownWidths.get(index) ?? share);
     return [new Table({ rows, columnWidths, width: { size: 100, type: WidthType.PERCENTAGE } })];
   }
   if (node.type === "image") {
