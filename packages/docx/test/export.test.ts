@@ -277,3 +277,62 @@ describe("DOCX export adapter", () => {
     await expect(exportDocx({ sections: [] } as never)).rejects.toThrow(/at least one section/);
   });
 });
+
+describe("DOCX merged table cells", () => {
+  const build = (rows: Array<Array<{ text: string; colspan?: number; rowspan?: number }>>) => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const tableRows = rows.map(cells => f.block("tableRow", cells.map(c => f.block("tableCell", [f.paragraph(c.text)], {
+      ...(c.colspan ? { colspan: c.colspan } : {}), ...(c.rowspan ? { rowspan: c.rowspan } : {}),
+    }))));
+    return createDocument({ ids, content: [f.block("table", tableRows)] });
+  };
+  const shape = (doc: ReturnType<typeof build>) => {
+    const table = doc.sections[0]!.content.find(n => n.type === "table") as BlockNode;
+    return (table.content as BlockNode[]).map(r => (r.content as BlockNode[]).map(c => `${(c.content as BlockNode[])[0] ? JSON.stringify(c.content).match(/"text":"([^"]*)"/)?.[1] : ""}:${c.attrs?.colspan ?? 1}x${c.attrs?.rowspan ?? 1}`));
+  };
+
+  it("round-trips colspan and rowspan through export and import", async () => {
+    const doc = build([
+      [{ text: "A", rowspan: 2 }, { text: "B", colspan: 2 }],
+      [{ text: "C" }, { text: "D" }],
+      [{ text: "E" }, { text: "F" }, { text: "G" }],
+    ]);
+    const imported = await importDocx(await exportDocx(doc));
+    expect(shape(imported)).toEqual([["A:1x2", "B:2x1"], ["C:1x1", "D:1x1"], ["E:1x1", "F:1x1", "G:1x1"]]);
+  });
+
+  it("emits gridSpan and vMerge markup in the OOXML", async () => {
+    const bytes = await exportDocx(build([[{ text: "A", rowspan: 2 }, { text: "B", colspan: 2 }], [{ text: "C" }, { text: "D" }]]));
+    const xml = await (await JSZip.loadAsync(bytes)).file("word/document.xml")!.async("string");
+    expect(xml).toContain("<w:gridSpan w:val=\"2\"/>");
+    expect(xml).toContain("<w:vMerge w:val=\"restart\"/>");
+    expect(xml).toContain("<w:vMerge w:val=\"continue\"/>");
+  });
+
+  it("clamps invalid spans instead of producing a corrupt table", async () => {
+    const doc = build([[{ text: "A", colspan: 0 }, { text: "B", rowspan: 99 }], [{ text: "C" }]]);
+    const imported = await importDocx(await exportDocx(doc));
+    const rows = shape(imported);
+    expect(rows.length).toBe(2);
+    expect(rows[0]![1]).toBe("B:1x2");
+  });
+
+  it("does not over-count rowspan when a whole row is vertical-merge continuation", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const doc = createDocument({ ids, content: [f.block("table", [f.block("tableRow", [f.block("tableCell", [f.paragraph("X")])]), f.block("tableRow", [f.block("tableCell", [f.paragraph("Y")])]), f.block("tableRow", [f.block("tableCell", [f.paragraph("Z")])])])] });
+    const zip = await JSZip.loadAsync(await exportDocx(doc));
+    let xml = await zip.file("word/document.xml")!.async("string");
+    let n = 0;
+    xml = xml.replace(/<w:tcPr>/g, () => (n++ === 0 ? '<w:tcPr><w:vMerge w:val="restart"/>' : n === 2 ? '<w:tcPr><w:vMerge/>' : "<w:tcPr>"));
+    zip.file("word/document.xml", xml);
+    const imported = await importDocx(await zip.generateAsync({ type: "uint8array" }));
+    const table = imported.sections[0]!.content.find(c => c.type === "table") as BlockNode;
+    const rows = table.content as BlockNode[];
+    const first = (rows[0]!.content as BlockNode[])[0]!;
+    // The all-continuation row has no cells of its own and is dropped, so the merge must not still claim it.
+    expect(rows).toHaveLength(2);
+    expect(Number(first.attrs?.rowspan ?? 1)).toBe(1);
+  });
+});

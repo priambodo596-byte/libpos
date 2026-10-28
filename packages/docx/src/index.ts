@@ -146,17 +146,34 @@ function plainText(node: BlockNode): string {
     : "id" in child ? plainText(child as BlockNode) : "").join("");
 }
 
+const MAX_TABLE_SPAN = 100;
+/** Coerces a colspan/rowspan model value to an integer in [1, max]; anything invalid becomes 1. */
+function boundedSpan(value: unknown, max: number): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(n) || n < 1) return 1;
+  return Math.min(n, Math.max(1, max));
+}
+
 async function blockToParagraphs(node: BlockNode, options: DocxExportOptions): Promise<Array<Paragraph | Table>> {
   if (node.type === "pageBreak") return [new Paragraph({ children: [new PageBreak()] })];
   if (node.type === "table") {
     const rows: TableRow[] = [];
-    for (const rowChild of node.content ?? []) {
-      if (!("id" in rowChild) || rowChild.type !== "tableRow") continue;
-      const rowNode = rowChild as BlockNode;
+    const rowNodes = (node.content ?? []).filter((c): c is BlockNode => "id" in c && c.type === "tableRow");
+    // Columns already taken by a rowSpan from an earlier row, keyed by row index. The model stores no continuation cells.
+    const occupied: Array<Set<number>> = rowNodes.map(() => new Set<number>());
+    let totalColumns = 0;
+    rowNodes.forEach((rowNode, rowIndex) => {
       const cells: TableCell[] = [];
+      let column = 0;
       for (const cellChild of rowNode.content ?? []) {
         if (!("id" in cellChild) || cellChild.type !== "tableCell") continue;
         const cellNode = cellChild as BlockNode;
+        while (occupied[rowIndex]!.has(column)) column += 1;
+        const columnSpan = boundedSpan(cellNode.attrs?.colspan, MAX_TABLE_SPAN);
+        const rowSpan = boundedSpan(cellNode.attrs?.rowspan, rowNodes.length - rowIndex);
+        for (let r = 1; r < rowSpan; r += 1) for (let c = 0; c < columnSpan; c += 1) occupied[rowIndex + r]!.add(column + c);
+        column += columnSpan;
+        totalColumns = Math.max(totalColumns, column);
         const paragraphs: Paragraph[] = [];
         for (const child of cellNode.content ?? []) {
           if (!("id" in child)) continue;
@@ -165,12 +182,14 @@ async function blockToParagraphs(node: BlockNode, options: DocxExportOptions): P
           else if (cellBlock.type === "image") paragraphs.push(new Paragraph({ text: options.imageFallback?.(cellBlock) ?? "[Image]" }));
         }
         if (!paragraphs.length) paragraphs.push(new Paragraph({ text: plainText(cellNode) }));
-        cells.push(new TableCell({ children: paragraphs }));
+        cells.push(new TableCell({ children: paragraphs, ...(columnSpan > 1 ? { columnSpan } : {}), ...(rowSpan > 1 ? { rowSpan } : {}) }));
       }
       if (cells.length) rows.push(new TableRow({ children: cells }));
-    }
+    });
     if (!rows.length) return [new Paragraph({ text: "" })];
-    return [new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } })];
+    // Rows whose cells were all skipped are dropped above, so only the columns actually used are declared.
+    const columnWidths = Array.from({ length: Math.max(1, totalColumns) }, () => Math.floor(9026 / Math.max(1, totalColumns)));
+    return [new Table({ rows, columnWidths, width: { size: 100, type: WidthType.PERCENTAGE } })];
   }
   if (node.type === "image") {
     const src = stringAttr(node, "src");

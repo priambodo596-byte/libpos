@@ -382,6 +382,7 @@ function blockFromElement(element: Element, relationships: Map<string, { target:
       if (rowHeight && Number(rowHeight) > 0) rowAttrs.height = Number(rowHeight);
       const cells: BlockNode[] = [];
       const nextVerticalMerges = new Map<number, { cell: BlockNode; columns: number }>();
+      const continuedInRow = new Set<BlockNode>();
       let columnIndex = 0;
       for (const cell of elements(row, "tc")) {
         const cellProps = elements(cell, "tcPr")[0];
@@ -399,6 +400,7 @@ function blockFromElement(element: Element, relationships: Map<string, { target:
         if (verticalMerge && mergeValue !== "restart" && previousMerge) {
           const previousRowspan = Number(previousMerge.cell.attrs?.rowspan ?? 1);
           previousMerge.cell.attrs = { ...(previousMerge.cell.attrs ?? {}), rowspan: previousRowspan + 1 };
+          continuedInRow.add(previousMerge.cell);
           for (let offset = 0; offset < span; offset += 1) nextVerticalMerges.set(columnIndex + offset, previousMerge);
           columnIndex += span;
           continue;
@@ -433,6 +435,10 @@ function blockFromElement(element: Element, relationships: Map<string, { target:
       verticalMerges.clear();
       for (const [column, merge] of nextVerticalMerges) verticalMerges.set(column, merge);
       if (cells.length) rows.push(factory.block("tableRow", cells, rowAttrs));
+      else for (const merged of continuedInRow) {
+        // A row made only of continuation cells is not emitted, so the merge must not keep counting it.
+        merged.attrs = { ...(merged.attrs ?? {}), rowspan: Math.max(1, Number(merged.attrs?.rowspan ?? 1) - 1) };
+      }
     }
     return rows.length ? factory.block("table", rows, tableAttrs) : undefined;
   }
