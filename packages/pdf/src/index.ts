@@ -313,19 +313,17 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
           const groupHeight = heightOf(group[0], group[1]);
           const availableHeight = y - dimensions.bottom;
           const repeatedHeaderHeight = groupIndex > 0 ? heightOf(groups[0]![0], groups[0]![1]) : 0;
-          if (group[0] === group[1] && groupHeight > dimensions.height - dimensions.top - dimensions.bottom) {
-            // A single row taller than a page is split into bordered continuation fragments.
-            // rowGroups guarantees this row has no rowspan crossing its boundary.
-            const row = group[0];
-            const rowCells = grid.cells.filter(cell => cell.row === row);
-            const maxLines = Math.max(1, ...rowCells.map(cell => wrappedByCell.get(cell)?.length ?? 1));
+          if (groupHeight > dimensions.height - dimensions.top - dimensions.bottom) {
+            // Oversized row groups, including merged rowspan cells, split into bordered continuation fragments.
+            const groupCells = grid.cells.filter(cell => cell.row >= group[0] && cell.row <= group[1]);
+            const maxLines = Math.max(1, ...groupCells.map(cell => wrappedByCell.get(cell)?.length ?? 1));
             const linesPerPage = Math.max(1, Math.floor((dimensions.height - dimensions.top - dimensions.bottom - padding * 2) / lineHeight));
             let lineStart = 0;
             while (lineStart < maxLines) {
               if (y - (Math.min(linesPerPage, maxLines - lineStart) * lineHeight + padding * 2) < dimensions.bottom) newPage();
               const lineEnd = Math.min(maxLines, lineStart + linesPerPage);
               const fragmentHeight = (lineEnd - lineStart) * lineHeight + padding * 2;
-              for (const cell of rowCells) {
+              for (const cell of groupCells) {
                 const x = starts[cell.col]!;
                 page.drawRectangle({ x, y: y - fragmentHeight, width: cellWidth(cell), height: fragmentHeight, borderColor: rgb(0.45, 0.45, 0.45), borderWidth: 0.5 });
                 let textY = y - padding - bodySize;
