@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { htmlToStructuralClipboardPayload } from "../src/html-clipboard";
-import { createDocument, createEditor, createNodeFactory, createSequentialIdGenerator } from "@convetlib/core";
+import { createDocument, createEditor, createNodeFactory, createSequentialIdGenerator, type BlockNode } from "@convetlib/core";
 import { registerEditingCommands, setSelection } from "../src/index";
 import { copySelection, cutSelection, htmlToClipboardPayload, pasteClipboardPayload, type ClipboardPayload } from "../src/clipboard";
 
@@ -22,6 +22,19 @@ describe("clipboard interoperability", () => {
     expect(payload?.html).not.toContain("<script");
     expect(payload?.text).not.toContain("bad");
     expect(payload?.text).not.toContain("evil frame");
+  });
+
+  it("keeps images and surrounding text inside their originating table cell", () => {
+    const payload = htmlToClipboardPayload('<table><tr><td>Before<img src="https://example.com/cell.png" alt="Cell image">After</td></tr></table>');
+    const table = payload?.nodes?.[0];
+    expect(payload?.nodes).toHaveLength(1);
+    expect(table?.type).toBe("table");
+    const row = table?.content?.[0] as BlockNode | undefined;
+    const cell = row?.content?.[0] as BlockNode | undefined;
+    expect(cell?.content?.map(node => node.type)).toEqual(["paragraph", "image", "paragraph"]);
+    expect((cell?.content?.[0] as BlockNode | undefined)?.content?.[0]).toMatchObject({ type: "text", text: "Before" });
+    expect(cell?.content?.[1]).toMatchObject({ type: "image", attrs: { src: "https://example.com/cell.png", alt: "Cell image" } });
+    expect((cell?.content?.[2] as BlockNode | undefined)?.content?.[0]).toMatchObject({ type: "text", text: "After" });
   });
 
   it("imports mixed HTML in paragraph-image-table-paragraph order and strips unsafe markup", () => {

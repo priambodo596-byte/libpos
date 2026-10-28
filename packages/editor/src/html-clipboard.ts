@@ -60,9 +60,15 @@ export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload
     paragraphRuns = [];
     paragraphTag = "p";
   };
+  const flushCellText = () => {
+    if (!cell || !cellRuns.length) return;
+    cell.content ??= [];
+    cell.content.push({ type: "paragraph", id: id(), content: cellRuns.map(r => ({ type: "text", text: r.text, ...(r.marks.length ? { marks: r.marks.map(m => typeof m === "string" ? ({ type: m }) : m) } : {}) })) });
+    cellRuns = [];
+  };
   const flushCell = () => {
     if (!cell) return;
-    if (cellRuns.length) cell.content = [{ type: "paragraph", id: id(), content: cellRuns.map(r => ({ type: "text", text: r.text, ...(r.marks.length ? { marks: r.marks.map(m => typeof m === "string" ? ({ type: m }) : m) } : {}) })) }];
+    flushCellText();
     if (!cell.content?.length) cell.content = [{ type: "paragraph", id: id(), content: [] }];
     row?.content?.push(cell);
     cell = undefined; cellRuns = [];
@@ -83,7 +89,7 @@ export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload
       else if (t === "table") flushTable();
       else if (t === "li") { flushParagraph(); itemStack.pop(); paragraphTag = "p"; }
       else if (t === "ul" || t === "ol") { flushParagraph(); listStack.pop(); }
-      else if (blockTags.has(t)) flushParagraph();
+      else if (blockTags.has(t)) { if (cell) flushCellText(); else flushParagraph(); }
       else if (t === "a") marks = marks.filter(m => typeof m === "string" || m.type !== "link");
       else if (["b", "strong"].includes(t)) marks = marks.filter(m => m !== "bold");
       else if (["i", "em"].includes(t)) marks = marks.filter(m => m !== "italic");
@@ -128,16 +134,17 @@ export function htmlToStructuralClipboardPayload(html: string): ClipboardPayload
       if (t === "img") {
         const src = attr(token, "src");
         if (src && /^(https?:\/\/|data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(src)) {
-          flushParagraph();
           const imageAttrs: NonNullable<BlockNode["attrs"]> = { src };
           const alt = attr(token, "alt"); if (alt) imageAttrs.alt = alt;
           for (const key of ["width", "height"] as const) { const n = Number(attr(token, key)); if (Number.isFinite(n) && n > 0 && n <= 10000) imageAttrs[key] = n; }
-          nodes.push({ type: "image", id: id(), attrs: imageAttrs });
+          const imageNode: BlockNode = { type: "image", id: id(), attrs: imageAttrs };
+          if (cell) { flushCellText(); cell.content?.push(imageNode); }
+          else { flushParagraph(); const parentItem = itemStack[itemStack.length - 1]; if (parentItem) parentItem.content?.push(imageNode); else nodes.push(imageNode); }
         }
         continue;
       }
       if (t === "br") { (cell ? cellRuns : paragraphRuns).push({ text: "\n", marks: marks.map(m => typeof m === "string" ? ({ type: m }) : m) }); continue; }
-      if (blockTags.has(t)) { flushParagraph(); paragraphTag = t; continue; }
+      if (blockTags.has(t)) { if (cell) flushCellText(); else flushParagraph(); paragraphTag = t; continue; }
       const mark = t === "b" || t === "strong" ? "bold" : t === "i" || t === "em" ? "italic" : t === "u" ? "underline" : ["s", "strike", "del"].includes(t) ? "strike" : t === "code" ? "code" : undefined;
       if (mark && !marks.includes(mark)) marks.push(mark);
       continue;
