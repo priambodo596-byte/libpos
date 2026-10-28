@@ -128,10 +128,12 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
     italic = options.italicFontBytes ? await pdf.embedFont(options.italicFontBytes, { subset: true }) : await pdf.embedFont(StandardFonts.HelveticaOblique);
     boldItalic = options.boldItalicFontBytes ? await pdf.embedFont(options.boldItalicFontBytes, { subset: true }) : await pdf.embedFont(StandardFonts.HelveticaBoldOblique);
   } else {
-    regular = await pdf.embedFont(StandardFonts.Helvetica);
-    bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-    italic = await pdf.embedFont(StandardFonts.HelveticaOblique);
-    boldItalic = await pdf.embedFont(StandardFonts.HelveticaBoldOblique);
+    // Match the enterprise DOCX default (Times New Roman family) as closely as the
+    // built-in PDF fonts allow. Hosts can embed Times New Roman bytes for exact typography.
+    regular = await pdf.embedFont(StandardFonts.TimesRoman);
+    bold = await pdf.embedFont(StandardFonts.TimesRomanBold);
+    italic = await pdf.embedFont(StandardFonts.TimesRomanItalic);
+    boldItalic = await pdf.embedFont(StandardFonts.TimesRomanBoldItalic);
   }
   const bodySize = Math.max(6, Math.min(36, options.fontSize ?? 11));
   const paragraphGap = Math.max(0, Math.min(48, options.paragraphGap ?? 5));
