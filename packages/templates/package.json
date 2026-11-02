@@ -1,7 +1,7 @@
 {
   "name": "@convetlib/templates",
   "version": "0.1.0-beta.0",
-  "description": "Safe, framework-agnostic document template and placeholder engine.",
+  "description": "Safe document templates, official-letter generation, and company compliance checks.",
   "type": "module",
   "sideEffects": false,
   "license": "MIT",
@@ -11,5 +11,6 @@
   "types": "./dist/index.d.ts",
   "exports": { ".": { "import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }, "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" } } },
   "scripts": { "build": "tsup", "test": "vitest run", "typecheck": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json" },
+  "dependencies": { "@convetlib/core": "workspace:*" },
   "devDependencies": { "tsup": "^9.0.0", "typescript": "^6.0.3", "vitest": "^5.0.5" }
 }

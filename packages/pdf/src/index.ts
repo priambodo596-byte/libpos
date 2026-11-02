@@ -431,6 +431,67 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
       const contentWidth = dimensions.width - dimensions.left - dimensions.right;
       let offset = 0;
       for (const block of blocks) {
+        if (region === "header" && block.type === "table") {
+          const row = block.content?.find(child => "id" in child && child.type === "tableRow") as BlockNode | undefined;
+          const cells = (row?.content ?? []).filter((child): child is BlockNode => "id" in child && child.type === "tableCell");
+          if (!cells.length) continue;
+          const widthWeights = cells.map(cell => typeof cell.attrs?.width === "number" && cell.attrs.width > 0 ? cell.attrs.width : 1);
+          const weightTotal = widthWeights.reduce((sum, value) => sum + value, 0);
+          const top = dimensions.height - Math.max(12, twipsToPoints(section.page.margins.header, 36)) - offset;
+          let tableHeight = 0;
+          for (let cellIndex = 0; cellIndex < cells.length; cellIndex += 1) {
+            const cell = cells[cellIndex]!;
+            const cellWidth = contentWidth * widthWeights[cellIndex]! / weightTotal;
+            const x = dimensions.left + contentWidth * widthWeights.slice(0, cellIndex).reduce((sum, value) => sum + value, 0) / weightTotal;
+            let cellOffset = 0;
+            for (const cellBlock of cell.content ?? []) {
+              if (!("id" in cellBlock)) continue;
+              const item = cellBlock as BlockNode;
+              if (item.type === "image") {
+                const source = item.attrs?.src;
+                if (typeof source !== "string" || !options.resolveImage) continue;
+                try {
+                  const resolved = await options.resolveImage(source);
+                  const embedded = resolved.type === "png" ? await pdf.embedPng(resolved.data) : await pdf.embedJpg(resolved.data);
+                  const requestedWidth = typeof item.attrs?.width === "number" && item.attrs.width > 0 ? item.attrs.width * PX_TO_PT : embedded.width;
+                  const requestedHeight = typeof item.attrs?.height === "number" && item.attrs.height > 0 ? item.attrs.height * PX_TO_PT : embedded.height;
+                  const scale = Math.min(1, (cellWidth - 8) / requestedWidth, 62 / requestedHeight);
+                  const width = requestedWidth * scale;
+                  const height = requestedHeight * scale;
+                  page.drawImage(embedded, { x: x + Math.max(4, (cellWidth - width) / 2), y: top - height - cellOffset, width, height });
+                  cellOffset += height + 2;
+                } catch { /* An unavailable logo should not prevent the remaining letterhead from exporting. */ }
+                continue;
+              }
+              if (item.type === "horizontalRule") continue;
+              const text = safePdfText(nodeText(item, options), Boolean(options.fontBytes));
+              if (!text) continue;
+              const role = item.attrs?.templateRole;
+              const emphasis = role === "letterhead";
+              const size = emphasis ? Math.min(14, bodySize + 2) : role === "letterheadContact" ? Math.max(8, bodySize - 3) : Math.max(9, bodySize - 1);
+              const font = emphasis ? bold : regular;
+              const lines = wrapText(text, font, size, cellWidth - 8, Boolean(options.fontBytes));
+              for (const line of lines) {
+                const lineWidth = font.widthOfTextAtSize(line, size);
+                const align = item.attrs?.align;
+                const textX = align === "right" ? x + cellWidth - lineWidth - 4 : align === "left" ? x + 4 : x + Math.max(4, (cellWidth - lineWidth) / 2);
+                page.drawText(line, { x: textX, y: top - cellOffset - size, size, font, color: rgb(0, 0, 0) });
+                cellOffset += size * 1.2;
+              }
+            }
+            tableHeight = Math.max(tableHeight, cellOffset);
+          }
+          const ruleY = top - tableHeight - 2;
+          page.drawLine({ start: { x: dimensions.left, y: ruleY }, end: { x: dimensions.width - dimensions.right, y: ruleY }, thickness: 0.7, color: rgb(0.2, 0.2, 0.2) });
+          offset += tableHeight + 8;
+          continue;
+        }
+        if (block.type === "horizontalRule") {
+          const y = region === "header" ? dimensions.height - Math.max(12, twipsToPoints(section.page.margins.header, 36)) - offset : Math.max(8, dimensions.bottom * 0.35) + offset;
+          page.drawLine({ start: { x: dimensions.left, y }, end: { x: dimensions.width - dimensions.right, y }, thickness: 0.7, color: rgb(0.2, 0.2, 0.2) });
+          offset += 5;
+          continue;
+        }
         if (block.type === "image") {
           const source = block.attrs?.src;
           if (typeof source !== "string" || !options.resolveImage) continue;

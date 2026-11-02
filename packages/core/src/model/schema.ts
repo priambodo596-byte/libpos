@@ -195,6 +195,7 @@ export const CORE_NODE_SPECS: readonly NodeSpec[] = [
       styleId: optionalString,
       styleName: optionalString,
       styleBasedOn: optionalString,
+      templateRole: { validate: (v) => ["letterhead", "metadata", "body", "signature"].includes(v as string) },
     },
   },
   {

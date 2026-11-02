@@ -1,6 +1,6 @@
 # @convetlib/playground
 
-A browser-run playground for the actual Convetlib document model and export adapters. This is an example app, not part of the published framework-agnostic core package.
+A browser playground for the Convetlib document model, editor, and export adapters. It is an example application, separate from the published framework-agnostic core package.
 
 ## Run locally
 
@@ -13,32 +13,36 @@ pnpm --filter @convetlib/playground dev
 
 Open the local URL printed by Vite (normally `http://127.0.0.1:5173`).
 
+## Official company-letter templates
+
+Choose **Template Resmi** to create a letter template with the company's logo, letterhead, contact details, page size, margins, font, line spacing, and required number/date formats. Fill the required fields and use **Pemeriksa Template** before printing or exporting. A custom TTF/OTF file can be supplied so PDF typography matches the selected font.
+
+The template profile and field values are applied to the preview and DOCX export. The **PDF (via Print)** action opens the browser's print dialog using the same HTML/CSS layout as **Print**; choose **Save as PDF** in that dialog. This makes the playground's PDF output match its print output.
+
+The `@convetlib/pdf` package remains available to host applications as a semantic, text-first PDF renderer. It is not pixel-identical to the browser renderer; use the playground's **PDF (via Print)** action when browser layout parity is required.
+
 ## Implemented against real packages
 
-- `@convetlib/core`: creates the initial `DocumentJSON`, creates the editor engine, validates models with `coreSchema`, and replaces the editor document after valid JSON is submitted.
-- `@convetlib/docx`: imports DOCX/DOTX packages and exports DOCX.
-- `@convetlib/pdf`: exports PDF.
-- The JSON panel, document preview, schema status, and field inventory are rendered from the active editor model.
+- `@convetlib/core`: creates and validates `DocumentJSON` models and runs the editor engine.
+- `@convetlib/editor`: browser editing commands, selection, and formatting integration.
+- `@convetlib/templates`: official-letter template creation, field checks, and export options.
+- `@convetlib/docx`: DOCX/DOTX import and DOCX export.
+- `@convetlib/pdf`: semantic PDF export for host integrations.
 
-## Current limitations
+## Known limitations
 
-- This is a functional integration prototype, not yet a complete rich-text/WYSIWYG editing surface.
-- Text placeholders in the sample document are ordinary text tokens. Placeholder nodes are supported by the model but automatic field-value binding is not implemented yet.
-- DOCX/DOTX import and DOCX/PDF export should be checked against representative real-world templates before production use. PDF output uses the existing semantic renderer, not browser-pixel-identical HTML rendering.
+- Exact company compliance depends on entering the approved page, font, margin, numbering, and date rules in the template. The generic defaults are not a substitute for the company's controlled standard.
+- DOCX pagination and layout can still vary with Word version, installed fonts, and printer settings. Validate representative documents in the target Word environment.
+- Re-importing a DOCX does not preserve all floating-image positioning or advanced Word layout features.
 
 ## Free image positioning
 
-Images can be dragged anywhere on the page in the Preview view (pointer events; `Esc` cancels a drag). On release the position is written once to the model as `attrs.positionX` / `attrs.positionY` on the `image` node.
+Images can be dragged anywhere on a page in Preview. Position is stored as `attrs.positionX` / `attrs.positionY`, in CSS pixels from the top-left edge of the page. DOCX writes page-anchored floating images; the semantic PDF adapter converts coordinates from CSS pixels to PDF points. Re-importing a DOCX does not restore every anchored-image position.
 
-- **Coordinate system:** CSS px (96 dpi) from the top-left corner of the page edge (not the content area, margins are not subtracted). Values are clamped to `0 … pageSize − imageSize` while dragging. Zoom is compensated (`paper.style.zoom`).
-- **Region:** the image stays in the region it belongs to (`header`, `content` or `footer`); it is only drawn at an absolute page position. Moving a block between regions is not implemented.
-- **Legacy images** (no coordinates) keep the previous flow layout. Clicking Kiri / Tengah / Kanan sets `align` and clears the free position.
-- **Export:** DOCX writes a page-anchored floating image (`wp:anchor`, EMU offsets); PDF draws at `px × 0.75` pt with the Y axis flipped. Re-importing an exported DOCX does not yet restore anchored positions (anchored drawings are imported as flow images).
+## Save projects
 
-## Menyimpan proyek
+**Simpan Proyek** (or `Ctrl+S`; `Ctrl+Shift+S` = Save As) stores the full design as a `<title>.convetlib.json` file. Open it again through **Open .docx/.dotx/.json**.
 
-Tombol **Simpan Proyek** (atau `Ctrl+S`; `Ctrl+Shift+S` = simpan sebagai) menyimpan seluruh desain (halaman alur, canvas, gambar, posisi) sebagai satu berkas JSON dokumen biasa, `<judul>.convetlib.json`. Berkas yang sama dibuka lagi lewat **Open .docx/.dotx/.json**.
-
-- **Lokal** (`localhost`, `127.0.0.1` atau `file:`): berkas ditulis ke komputer Anda lewat File System Access API (Chrome/Edge). Anda memilih lokasi sekali; `Ctrl+S` berikutnya menimpa berkas yang sama. Peramban tanpa API ini mengunduh berkas ke folder Unduhan.
-- **Website** (host lain): dialog arahan menjelaskan bahwa proyek tidak disimpan di server, ke mana berkas pergi (jendela Simpan sebagai atau folder Unduhan), cara memilih folder, saran cadangan, dan cara membukanya kembali. Dialog bisa disembunyikan dengan "Jangan tampilkan lagi".
-- Paksa mode untuk pengujian dengan `?storage=local` atau `?storage=web` pada URL.
+- On `localhost`, `127.0.0.1`, or `file:`, Chrome/Edge can save through the File System Access API. Browsers without that API download the file.
+- On other hosts, the project remains in the downloaded file; it is not uploaded to a server.
+- `?storage=local` and `?storage=web` force the storage mode for development checks.

@@ -180,6 +180,9 @@ importers:
       '@convetlib/pdf':
         specifier: workspace:*
         version: link:../../packages/pdf
+      '@convetlib/templates':
+        specifier: workspace:*
+        version: link:../../packages/templates
     devDependencies:
       vite:
         specifier: ^7.1.7
@@ -276,6 +279,10 @@ importers:
         version: 5.0.5(@types/node@26.6.5)(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2))
 
   packages/templates:
+    dependencies:
+      '@convetlib/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       tsup:
         specifier: ^9.0.0

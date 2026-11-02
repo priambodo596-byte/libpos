@@ -102,6 +102,15 @@ function alignment(node: BlockNode): (typeof AlignmentType)[keyof typeof Alignme
 
 function paragraph(node: BlockNode, fieldValues?: Record<string, string>): Paragraph {
   const align = alignment(node);
+  const templateStyles: Record<string, string> = {
+    letterhead: "ConvetlibLetterhead",
+    letterheadContact: "ConvetlibLetterheadContact",
+    metadata: "ConvetlibMetadata",
+    body: "ConvetlibBody",
+    signature: "ConvetlibSignature",
+  };
+  const templateRole = stringAttr(node, "templateRole");
+  const templateStyle = templateRole ? templateStyles[templateRole] : undefined;
   const level = numberAttr(node, "level") ?? 1;
   const heading = level <= 1 ? HeadingLevel.HEADING_1
     : level === 2 ? HeadingLevel.HEADING_2
@@ -119,6 +128,7 @@ function paragraph(node: BlockNode, fieldValues?: Record<string, string>): Parag
     ...(align ? { alignment: align } : {}),
     ...(node.type === "heading" ? { heading } : {}),
     ...(node.type === "codeBlock" ? { style: "No Spacing" } : {}),
+    ...(node.type === "paragraph" && templateStyle ? { style: templateStyle } : {}),
     ...(node.type === "listItem" ? { bullet: { level: 0 } } : {}),
     ...((spacingBefore !== undefined || spacingAfter !== undefined || lineSpacing !== undefined) ? { spacing: {
       ...(spacingBefore !== undefined && spacingBefore >= 0 ? { before: Math.round(spacingBefore) } : {}),
@@ -213,7 +223,8 @@ async function blockToParagraphs(node: BlockNode, options: DocxExportOptions): P
     const occupied: Array<Set<number>> = rowNodes.map(() => new Set<number>());
     let totalColumns = 0;
     const knownWidths = new Map<number, number>();
-    rowNodes.forEach((rowNode, rowIndex) => {
+    for (let rowIndex = 0; rowIndex < rowNodes.length; rowIndex += 1) {
+      const rowNode = rowNodes[rowIndex]!;
       const cells: TableCell[] = [];
       let column = 0;
       for (const cellChild of rowNode.content ?? []) {
@@ -232,14 +243,17 @@ async function blockToParagraphs(node: BlockNode, options: DocxExportOptions): P
           if (!("id" in child)) continue;
           const cellBlock = child as BlockNode;
           if (cellBlock.type === "paragraph" || cellBlock.type === "heading" || cellBlock.type === "codeBlock") paragraphs.push(paragraph(cellBlock, options.fieldValues));
-          else if (cellBlock.type === "image") paragraphs.push(new Paragraph({ text: options.imageFallback?.(cellBlock) ?? "[Image]" }));
+          else if (cellBlock.type === "image") {
+            const imageParagraphs = await blockToParagraphs(cellBlock, options);
+            paragraphs.push(...imageParagraphs.filter((item): item is Paragraph => item instanceof Paragraph));
+          }
         }
         if (!paragraphs.length) paragraphs.push(new Paragraph({ text: plainText(cellNode) }));
         cells.push(new TableCell({ children: paragraphs, ...properties, ...(columnSpan > 1 ? { columnSpan } : {}), ...(rowSpan > 1 ? { rowSpan } : {}) }));
       }
       const rowHeight = numberAttr(rowNode, "height");
       if (cells.length) rows.push(new TableRow({ children: cells, ...(rowHeight !== undefined && rowHeight > 0 ? { height: { value: Math.round(rowHeight), rule: HeightRule.ATLEAST } } : {}) }));
-    });
+    }
     if (!rows.length) return [new Paragraph({ text: "" })];
     // Rows whose cells were all skipped are dropped above, so only the columns actually used are declared.
     // Columns with an explicit cell width keep it; the others share the remaining text width (9026 twips on A4 defaults).
@@ -385,6 +399,13 @@ export async function exportDocx(document: DocumentJSON, options: DocxExportOpti
     subject: "Generated business document",
     ...(anyEvenVariant ? { evenAndOddHeaderAndFooters: true } : {}),
     styles: {
+      paragraphStyles: [
+        { id: "ConvetlibLetterhead", name: "Convetlib Letterhead", basedOn: "Normal", run: { font: profile.fontFamily, bold: true }, paragraph: { alignment: AlignmentType.CENTER, keepNext: true } },
+        { id: "ConvetlibLetterheadContact", name: "Convetlib Letterhead Contact", basedOn: "Normal", run: { font: profile.fontFamily, size: 18 }, paragraph: { alignment: AlignmentType.CENTER, keepNext: true } },
+        { id: "ConvetlibMetadata", name: "Convetlib Metadata", basedOn: "Normal", run: { font: profile.fontFamily } },
+        { id: "ConvetlibBody", name: "Convetlib Body", basedOn: "Normal", run: { font: profile.fontFamily } },
+        { id: "ConvetlibSignature", name: "Convetlib Signature", basedOn: "Normal", run: { font: profile.fontFamily }, paragraph: { keepNext: true } },
+      ],
       default: {
         document: {
           run: { font: profile.fontFamily, size: Math.round(profile.fontSizePt * 2), color: "000000" },

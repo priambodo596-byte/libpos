@@ -44,3 +44,5 @@ export function listTemplateKeys(template: string): string[] {
   for (const match of template.matchAll(TOKEN)) if (!keys.includes(match[1]!)) keys.push(match[1]!);
   return keys;
 }
+
+export * from "./official-letter";

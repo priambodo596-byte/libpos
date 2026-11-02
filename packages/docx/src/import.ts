@@ -279,6 +279,14 @@ function makeParagraph(element: Element, relationships: Map<string, { target: st
   if (styleId) inherited.styleId = styleId;
   if (style?.name) inherited.styleName = style.name;
   if (style?.basedOn) inherited.styleBasedOn = style.basedOn;
+  const templateRoles: Record<string, string> = {
+    ConvetlibLetterhead: "letterhead",
+    ConvetlibLetterheadContact: "letterheadContact",
+    ConvetlibMetadata: "metadata",
+    ConvetlibBody: "body",
+    ConvetlibSignature: "signature",
+  };
+  if (styleId && templateRoles[styleId]) inherited.templateRole = templateRoles[styleId]!;
   node.attrs = { ...(node.attrs ?? {}), ...inherited };
   return node;
 }

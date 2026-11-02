@@ -81,17 +81,40 @@ Berikut bukti tampilan Playground terbaru. Gambar disimpan di repository agar la
 - Supports page geometry, paragraphs, headings, explicit page breaks, automatic overflow pagination, and table cells with wrapped text. Tables accept relative `columnWidths` weights on the table node (for example `[3, 1]`) and repeat their first row as a header when continuing to a new page.
 - Uses the shared official-document typography baseline (Times-family 12 pt, 1.15 line spacing, A4 page geometry from the model); pass `profile` to `exportPdf` or `exportDocx` to set organization-specific font size, family, spacing, and heading sizes. PDF can embed the organization's actual font files through `fontBytes` and optional bold/italic variants.
 - Marked text supports bold, italic, underline, and strike. PNG/JPEG image embedding, section header/footer variants, and page numbering are also supported.
+- In the browser playground, **PDF (via Print)** uses the browser's print layout and opens the print dialog; choose **Save as PDF** for output matching the Print action. This playground route is intentionally separate from this package's semantic renderer.
 
 ### `@convetlib/templates`
 
 - Scalar placeholders with nested paths such as `{{ surat.nomor }}`.
 - Lists placeholder keys and reports missing values, with optional strict mode.
 - Optional escaping callback; template expressions are never evaluated.
+- Company-configurable official-letter skeletons with logo and letterhead, required identity fields, signer block, page profile, and configurable number/date patterns.
+- `checkOfficialLetter` audits the document model for its logo, required letterhead lines, required placeholders, signature fields, official page geometry, and supplied field values. `officialExportOptions` carries the template profile and values to DOCX/PDF export.
 
 Example:
 
 ```ts
-import { renderTemplate, escapeHtml } from "@convetlib/templates";
+import { createOfficialLetterTemplate, checkOfficialLetter, formatOfficialDate, officialExportOptions, renderTemplate, escapeHtml } from "@convetlib/templates";
+const template = createOfficialLetterTemplate({
+  id: "surat-keluar-v1",
+  name: "Surat Keluar Resmi",
+  company: { name: "Nama Perusahaan", logoSrc: "/assets/logo.png", address: "Alamat resmi perusahaan" },
+  numberPattern: "^\\d{3}/[A-Z]+/\\d{4}$",
+});
+const values = {
+  "surat.nomor": "001/OPS/2026",
+  "surat.tanggal": formatOfficialDate("2026-11-02"),
+  "surat.perihal": "Undangan",
+  "surat.tujuan": "Kepala Unit",
+  "surat.isi": "Isi surat...",
+  "penandatangan.nama": "Nama Pejabat",
+  "penandatangan.jabatan": "Direktur",
+};
+const audit = checkOfficialLetter(template, template.document, { fieldValues: values });
+if (!audit.valid) console.error(audit.issues);
+const exportOptions = officialExportOptions(template, values); // pass to exportDocx/exportPdf with a host image resolver
+
+// Ordinary scalar text templates remain supported too.
 const result = renderTemplate("Nomor {{ surat.nomor }}", { surat: { nomor: "001/2026" } }, { strict: true, escape: escapeHtml });
 ```
 
