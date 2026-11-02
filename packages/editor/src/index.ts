@@ -1,6 +1,10 @@
 import type { Editor, EditorState, CommandSpec, Transaction, Selection, Mark, BlockNode, Inline, IdGenerator } from "@convetlib/core";
 import { defaultIdGenerator } from "@convetlib/core";
 import { canEditAcrossBlocks, isTextBlock, locateBlock, planCrossBlockEdit, selectionSpansBlocks, textLength } from "./structure";
+import { createImageCommands } from "./images";
+export { createImageCommands } from "./images";
+export type { ImageMoveArgs, ImageMoveToArgs, ImageResizeArgs } from "./images";
+export { IMAGE_MIN_SIZE, IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT } from "./images";
 
 export interface EditingOptions { ids?: IdGenerator; now?: () => string; authorId?: string; }
 const UNSUPPORTED_SPAN = "This selection spans blocks in different sections or slots, or non-text blocks, which is not supported";
@@ -158,6 +162,22 @@ export function createEditingCommands(options: EditingOptions = {}): CommandSpec
     const ops:Transaction["ops"][number][]=selected.filter(r=>r.to>r.from).map(r=>({type:"format",blockId:r.block.id,from:r.from,to:r.to,mark:{type},action}));
     return {ok:true,transaction:{id:ids(),baseVersion:state.version,ops,meta:txMeta(options,id)}};
   },({state})=>!!selectedBlockRanges(state)?.some(r=>r.to>r.from));
+  const setTextColor=cmd("text.setColor",({state},args:{color:string})=>{
+    const color=typeof args?.color==="string"?args.color.trim():"";
+    if(!/^#[0-9a-f]{6}$/i.test(color))return {ok:false,reason:"A valid HEX color such as #1A2B3C is required"};
+    const selected=selectedBlockRanges(state);if(!selected?.some(r=>r.to>r.from))return {ok:false,reason:"Select text before applying a font color"};
+    const ops:Transaction["ops"][number][]=[];
+    for(const {block,from,to} of selected){let pos=0;for(const node of (block.content??[]) as Inline[]){const size=isText(node)?node.text.length:1,start=pos,end=pos+size;pos=end;if(!isText(node)||end<=from||start>=to)continue;const existing=(node.marks??[]).find(m=>m.type==="textStyle");const attrs={...(existing?.attrs??{}),color:color.toUpperCase()};ops.push({type:"format",blockId:block.id,from:Math.max(from,start),to:Math.min(to,end),mark:{type:"textStyle",attrs},action:"add"});}}
+    if(!ops.length)return {ok:false,reason:"The selected range contains no text"};
+    return {ok:true,transaction:{id:ids(),baseVersion:state.version,ops,meta:txMeta(options,"text.setColor")}};
+  },({state})=>!!selectedBlockRanges(state)?.some(r=>r.to>r.from));
+  const clearTextColor=cmd("text.clearColor",({state})=>{
+    const selected=selectedBlockRanges(state);if(!selected?.some(r=>r.to>r.from))return {ok:false,reason:"Select text before clearing its font color"};
+    const ops:Transaction["ops"][number][]=[];
+    for(const {block,from,to} of selected){let pos=0;for(const node of (block.content??[]) as Inline[]){const size=isText(node)?node.text.length:1,start=pos,end=pos+size;pos=end;if(!isText(node)||end<=from||start>=to)continue;const existing=(node.marks??[]).find(m=>m.type==="textStyle");if(!existing?.attrs?.color)continue;const attrs={...(existing.attrs??{})};delete attrs.color;const a=Math.max(from,start),z=Math.min(to,end);ops.push({type:"format",blockId:block.id,from:a,to:z,mark:{type:"textStyle",...(Object.keys(attrs).length?{attrs}:{})},action:Object.keys(attrs).length?"add":"remove"});}}
+    if(!ops.length)return {ok:false,reason:"Selected text has no custom font color"};
+    return {ok:true,transaction:{id:ids(),baseVersion:state.version,ops,meta:txMeta(options,"text.clearColor")}};
+  },({state})=>!!selectedBlockRanges(state)?.some(r=>r.to>r.from));
   const deleteTableRow=cmd("table.deleteRow",({state})=>{
     const c=tableContext(state);if(!c||c.rows.length<2)return {ok:false,reason:"A table row in a table with at least two rows is required"};
     const neighbor=c.rows[c.rowIndex+1]??c.rows[c.rowIndex-1]!;
@@ -173,7 +193,7 @@ export function createEditingCommands(options: EditingOptions = {}): CommandSpec
     const ops:Transaction["ops"][number][]=c.rows.map(row=>({type:"remove_block",id:(row.content??[]).filter(isBlock)[c.columnIndex]!.id}));
     return {ok:true,transaction:{id:ids(),baseVersion:state.version,ops,selection:{anchor:{blockId:target.id,offset:0},head:{blockId:target.id,offset:0}},meta:txMeta(options,"table.deleteColumn")}};
   },({state})=>canDeleteTableColumn(state));
-  return [insert,deleteDir("backward"),deleteDir("forward"),split,setType("paragraph"),setType("heading"),align,mark("text.toggleBold","bold"),mark("text.toggleItalic","italic"),mark("text.toggleUnderline","underline"),mark("text.toggleStrike","strike"),deleteTableRow,deleteTableColumn];
+  return [insert,deleteDir("backward"),deleteDir("forward"),split,setType("paragraph"),setType("heading"),align,mark("text.toggleBold","bold"),mark("text.toggleItalic","italic"),mark("text.toggleUnderline","underline"),mark("text.toggleStrike","strike"),setTextColor,clearTextColor,deleteTableRow,deleteTableColumn,...createImageCommands()];
 }
 export function registerEditingCommands(editor:Editor,options:EditingOptions={}):()=>void {
   const offs=createEditingCommands(options).map(s=>editor.commands.register(s)); return ()=>{for(const off of offs.reverse())off();};

@@ -25,6 +25,18 @@ describe("PDF export adapter", () => {
     expect(loaded.getPageCount()).toBeGreaterThanOrEqual(2);
   });
 
+  it("omits the empty starter section when exporting a document with real pages", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const doc = createDocument({ ids, content: [f.paragraph("")] });
+    const template = doc.sections[0]!;
+    const starter = { ...template, id: "starter-empty", kind: "flow" as const, content: [f.paragraph("")], header: [], footer: [] };
+    const canvas = { ...template, id: "canvas-content", kind: "canvas" as const, content: [f.paragraph("Visible document content")], header: [], footer: [] };
+    doc.sections = [starter, canvas];
+    const loaded = await PDFDocument.load(await exportPdf(doc));
+    expect(loaded.getPageCount()).toBe(1);
+  });
+
   it("automatically adds pages when the text exceeds the page content area", async () => {
     const ids = createSequentialIdGenerator();
     const f = createNodeFactory(ids);

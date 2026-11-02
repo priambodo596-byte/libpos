@@ -9,6 +9,7 @@ import {
   type Section,
   type TextNode,
 } from "./types";
+import { officialPageSetup } from "./official-profile";
 
 /** Produces unique ids. Injectable so tests and collaboration layers can control id allocation. */
 export type IdGenerator = () => string;
@@ -29,13 +30,9 @@ export function createSequentialIdGenerator(prefix = "n"): IdGenerator {
   return () => `${prefix}${++n}`;
 }
 
-/** A4 portrait, 1-inch margins, 0.5-inch header/footer distance. Units are twips. */
+/** A4 portrait using the built-in official-document baseline. Units are twips. */
 export function defaultPageSetup(): PageSetup {
-  return {
-    size: { width: 11906, height: 16838 },
-    orientation: "portrait",
-    margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720 },
-  };
+  return officialPageSetup();
 }
 
 type Content = string | Inline[];

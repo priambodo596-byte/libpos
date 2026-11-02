@@ -1,6 +1,7 @@
 // Pages panel, manual-design canvas and INSPECTOR field drag & drop for the Convetlib playground.
 // Kept in its own module so main.js only wires it in (see initPagesCanvas call at the bottom of main.js).
 import { paginateDocument } from '@convetlib/editor';
+import { planCanvasImport, createIdAllocator, cloneSectionWithFreshIds } from './canvas-import.js';
 
 const FIELD_MIME = 'application/x-convetlib-field';
 const THUMB_WIDTH = 150;
@@ -16,6 +17,7 @@ let pendingScrollSectionId = null;
 let followJson = true;
 let pagePinned = false; // true after a click/focus/card jump: scroll tracking must not override the page the user chose
 let jsonRangeCache = { text: null, ranges: [] };
+let copiedCanvasContent = null;
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const pxOf = (twips) => (twips / 1440) * 96;
@@ -50,25 +52,83 @@ function findNode(doc, id) {
 
 export function canvasBlockHtml(block, blockIndex) {
   const a = block.attrs || {};
-  if (block.type === 'image') {
-    return `<div class="doc-block image-block" data-block-id="${ctx.esc(block.id || '')}" data-block-index="${blockIndex}" draggable="false">${ctx.blockHtml(block)}</div>`;
-  }
   const free = Number.isFinite(a.positionX) && Number.isFinite(a.positionY);
-  const x = free ? a.positionX : 24;
-  const y = free ? a.positionY : 24 + blockIndex * 30;
-  const width = Number.isFinite(a.boxWidth) && a.boxWidth > 0 ? `width:${a.boxWidth}px;` : 'width:max-content;max-width:100%;';
-  // The wrapper deliberately has NO data-block-id: the inner <p>/<h2> is the editable leaf the browser binding maps to the model.
-  return `<div class="doc-block canvas-box" data-box-id="${ctx.esc(block.id || '')}" data-block-index="${blockIndex}" draggable="false" style="left:${x}px;top:${y}px;${width}"><span class="box-handle" contenteditable="false" title="Seret untuk memindahkan"></span>${ctx.blockHtml(block)}<span class="box-resize" contenteditable="false" title="Seret untuk mengubah lebar"></span></div>`;
+  if (block.type === 'image') {
+    const free = Number.isFinite(a.positionX) && Number.isFinite(a.positionY);
+    if (!free) {
+      // Imported/inline images participate in normal document flow; do not invent absolute coordinates.
+      return '<div class="doc-block image-block canvas-flow-block" data-block-id="' + ctx.esc(block.id || '') + '" data-block-index="' + blockIndex + '" draggable="' + (block.id ? 'true' : 'false') + '">' + ctx.blockHtml(block) + '</div>';
+    }
+    const imageAttrs = { ...(block.attrs || {}) };
+    delete imageAttrs.positionX;
+    delete imageAttrs.positionY;
+    const imageBlock = { ...block, attrs: imageAttrs };
+    return '<div class="doc-block image-block canvas-image-box" data-block-id="' + ctx.esc(block.id || '') + '" data-block-index="' + blockIndex + '" draggable="' + (block.id ? 'true' : 'false') + '" style="position:absolute;left:' + a.positionX + 'px;top:' + a.positionY + 'px;width:max-content;max-width:100%;">' + ctx.blockHtml(imageBlock) + '</div>';
+  }
+  if (!free && block.type === 'horizontalRule') {
+    // A line stays in flow until the user moves it; its geometry is then saved to the document model.
+    return '<div class="doc-block canvas-flow-block canvas-line-flow" data-box-id="' + ctx.esc(block.id || '') + '" data-block-id="' + ctx.esc(block.id || '') + '" data-block-index="' + blockIndex + '" draggable="' + (block.id ? 'true' : 'false') + '"><span class="box-handle flow-box-handle" contenteditable="false" title="Drag to move line"></span><span class="box-rotate flow-rotate-handle" contenteditable="false" title="Drag to rotate line"></span>' + ctx.blockHtml(block) + '</div>';
+  }
+  if (!free) {
+    // Ordinary paragraphs behave like Word: they use the page's text area and flow naturally.
+    // Keep the editable leaf's data-block-id intact for the browser-to-model binding.
+    return '<div class="doc-block canvas-flow-block" data-box-id="' + ctx.esc(block.id || '') + '" data-block-id="' + ctx.esc(block.id || '') + '" data-block-index="' + blockIndex + '" draggable="' + (block.id ? 'true' : 'false') + '"><span class="box-handle flow-box-handle" contenteditable="false" title="Drag to move text block"></span>' + ctx.blockHtml(block) + '</div>';
+  }
+  const x = a.positionX;
+  const y = a.positionY;
+  const width = Number.isFinite(a.boxWidth) && a.boxWidth > 0 ? 'width:' + a.boxWidth + 'px;' : 'width:max-content;max-width:100%;';
+  const rotation = Number.isFinite(a.rotation) ? a.rotation : 0;
+  const line = block.type === 'horizontalRule';
+  return '<div class="doc-block canvas-box' + (line ? ' canvas-line-box' : '') + '" data-box-id="' + ctx.esc(block.id || '') + '" data-block-id="' + ctx.esc(block.id || '') + '" data-block-index="' + blockIndex + '" data-rotation="' + rotation + '" draggable="' + (block.id ? 'true' : 'false') + '" style="left:' + x + 'px;top:' + y + 'px;' + width + 'transform:rotate(' + rotation + 'deg);"><span class="box-handle" contenteditable="false" title="Drag to move"></span>' + ctx.blockHtml(block) + (line ? '<span class="box-rotate" contenteditable="false" title="Drag to rotate line"></span>' : '<span class="box-resize" contenteditable="false" title="Drag to resize"></span>') + '</div>';
 }
 
 export function canvasSheetHtml(section, sectionIndex, doc) {
   const dims = pageDims(section.page, ctx.PAGE_SIZES);
-  const baseMargins = doc.sections[0]?.page?.margins || section.page.margins;
-  const padLeft = pxOf(baseMargins.left);
-  const blocks = (section.content || []).map((block, index) => canvasBlockHtml(block, index)).join('');
-  return `<div class="canvas-sheet" data-section-index="${sectionIndex}" data-region="content" data-page-section="${ctx.esc(section.id)}" style="width:${dims.w}px;height:${dims.h}px;margin-left:-${padLeft}px"><span class="canvas-sheet-label" contenteditable="false">CANVAS · ${Math.round(dims.w)} × ${Math.round(dims.h)} px</span>${blocks}</div>`;
+  const margins = section.page?.margins || doc.sections[0]?.page?.margins || {};
+  const left = pxOf(Number.isFinite(margins.left) ? margins.left : 1440);
+  const right = pxOf(Number.isFinite(margins.right) ? margins.right : 1440);
+  const top = pxOf(Number.isFinite(margins.top) ? margins.top : 1440);
+  const bottom = pxOf(Number.isFinite(margins.bottom) ? margins.bottom : 1440);
+  const renderRegion = (nodes) => {
+    const flow = [];
+    const positioned = [];
+    (nodes || []).forEach((block, index) => {
+      if (!(block.type === 'image' && Number.isFinite(block.attrs?.positionX) && Number.isFinite(block.attrs?.positionY)) &&
+          !(Number.isFinite(block.attrs?.positionX) && Number.isFinite(block.attrs?.positionY))) {
+        flow.push(canvasBlockHtml(block, index));
+      } else {
+        positioned.push(canvasBlockHtml(block, index));
+      }
+    });
+    return { flow: flow.join(''), positioned: positioned.join('') };
+  };
+  const headerNodes = section.header || [];
+  const header = renderRegion(headerNodes);
+  const body = renderRegion(section.content || []);
+  const footer = renderRegion(section.footer || []);
+  const headerLayout = headerNodes.reduce((layout, block) => {
+    const a = block.attrs || {};
+    if (Number.isFinite(a.positionY)) {
+      const height = Number.isFinite(a.height) && a.height > 0 ? a.height : 0;
+      layout.positionedBottom = Math.max(layout.positionedBottom, a.positionY + height + 4);
+    } else if (block.type === 'image') {
+      layout.flowHeight += Number.isFinite(a.height) && a.height > 0 ? a.height : 60;
+    } else {
+      layout.flowHeight += block.type === 'table' ? Math.max(24, (block.content || []).length * 20) : 20;
+    }
+    return layout;
+  }, { positionedBottom: 0, flowHeight: 0 });
+  const headerHeight = Math.max(30, top - 20, headerLayout.positionedBottom, headerLayout.flowHeight);
+  const hasHeaderContent = headerNodes.length > 0;
+  // Keep empty headers visually blank. Imported horizontalRule nodes render as actual movable lines.
+  const headerStyle = 'height:' + headerHeight + 'px;';
+  const firstCanvasIndex = doc.sections.findIndex((item) => item.kind === 'canvas');
+  const firstCanvasClass = sectionIndex === firstCanvasIndex ? ' is-first-canvas-sheet' : '';
+  return '<div class="canvas-sheet' + firstCanvasClass + '" data-orientation="' + (section.page?.orientation === 'landscape' ? 'landscape' : 'portrait') + '" data-section-index="' + sectionIndex + '" data-region="content" data-page-section="' + ctx.esc(section.id) + '" style="width:' + dims.w + 'px;height:' + dims.h + 'px;--canvas-margin-left:' + left + 'px;--canvas-margin-right:' + right + 'px;--canvas-margin-top:' + top + 'px;--canvas-margin-bottom:' + bottom + 'px">' +
+    '<div class="canvas-header-layer" data-section-index="' + sectionIndex + '" data-region="header" aria-label="Header halaman" style="' + headerStyle + '">' + header.flow + header.positioned + '</div>' +
+    '<div class="canvas-flow-layer" data-section-index="' + sectionIndex + '" data-region="content">' + body.flow + '</div>' + body.positioned +
+    '<div class="canvas-footer-layer" data-section-index="' + sectionIndex + '" data-region="footer" aria-label="Footer halaman">' + footer.flow + footer.positioned + '</div></div>';
 }
-
 export function applyBoxSelection() {
   let found = false;
   paper().querySelectorAll('.canvas-box').forEach((el) => {
@@ -104,11 +164,81 @@ function appendCanvas(doc, nextId) {
   return doc.sections.length - 1;
 }
 
+export function mergeImportIntoActiveCanvas(importedDoc) {
+  const current = ctx.getEditor()?.state?.document;
+  if (!current || !Array.isArray(importedDoc?.sections)) return null;
+  const active = pagesModel[activePageIndex];
+  if (!active || active.kind !== 'canvas') return null;
+
+  const plan = planCanvasImport(current, importedDoc, active.sectionId, ctx.ids);
+  if (!plan) return null;
+  pendingScrollSectionId = plan.targetSectionId;
+  return plan.doc;
+}
+
 function targetCanvasIndex(doc) {
   const active = pagesModel[activePageIndex];
   if (active && active.kind === 'canvas' && doc.sections[active.sectionIndex]?.kind === 'canvas') return active.sectionIndex;
   for (let i = doc.sections.length - 1; i >= 0; i--) if (doc.sections[i].kind === 'canvas') return i;
   return -1;
+}
+
+function cloneCanvasNodeWithFreshIds(node, nextId) {
+  if (!node || typeof node !== 'object' || typeof node.type !== 'string') return null;
+  const copy = { ...clone(node), id: nextId() };
+  if (Array.isArray(node.content)) copy.content = node.content.map(child => child && typeof child.id === 'string' ? cloneCanvasNodeWithFreshIds(child, nextId) : clone(child));
+  return copy;
+}
+
+function copyCanvasContent(sectionId) {
+  const doc = ctx.getEditor()?.state?.document;
+  const source = doc?.sections?.find(section => section.id === sectionId && section.kind === 'canvas');
+  if (!source) { status('Canvas sumber tidak ditemukan.'); return; }
+  const content = (source.content || []).filter(node => !(node.type === 'paragraph' && !(node.content || []).length && (source.content || []).length === 1));
+  if (!content.length) { status('Canvas sumber belum memiliki konten untuk disalin.'); return; }
+  const sourceDims = pageDims(source.page, ctx.PAGE_SIZES);
+  copiedCanvasContent = { sourceId: source.id, sourceWidth: sourceDims.w, sourceHeight: sourceDims.h, nodes: clone(content) };
+  status(`Isi ${content.length} elemen dari canvas berhasil disalin. Pilih canvas tujuan lalu klik “Tempel isi tersalin”.`);
+  const paste = document.getElementById('pasteCanvasContent');
+  const toolbarPaste = document.getElementById('pasteActiveCanvas');
+  if (paste) paste.disabled = false;
+  if (toolbarPaste) toolbarPaste.disabled = false;
+  refreshPages();
+}
+
+function pasteCopiedCanvasContent() {
+  if (!copiedCanvasContent?.nodes?.length) { status('Belum ada isi canvas yang disalin.'); return; }
+  const doc = clone(ctx.getEditor().state.document);
+  const targetIndex = targetCanvasIndex(doc);
+  if (targetIndex < 0) { status('Pilih atau buat canvas tujuan terlebih dahulu.'); return; }
+  const target = doc.sections[targetIndex];
+  if (target.id === copiedCanvasContent.sourceId) { status('Pilih canvas lain sebagai tujuan agar konten tidak terduplikasi pada sumber.'); return; }
+  const nextId = idFactory(doc);
+  const targetDims = pageDims(target.page, ctx.PAGE_SIZES);
+  const scaleX = targetDims.w / (copiedCanvasContent.sourceWidth || targetDims.w);
+  const scaleY = targetDims.h / (copiedCanvasContent.sourceHeight || targetDims.h);
+  const pasted = copiedCanvasContent.nodes.map(node => cloneCanvasNodeWithFreshIds(node, nextId));
+  if (pasted.some(node => !node)) { status('Sebagian konten tidak dapat disalin karena struktur tidak dikenali.'); return; }
+  // Adapt saved page-pixel geometry to the destination page and stagger repeated pastes.
+  const existing = target.content || [];
+  const offset = Math.min(8, existing.length) * 12;
+  for (const node of pasted) {
+    const attrs = node.attrs || (node.attrs = {});
+    if (Number.isFinite(attrs.positionX)) attrs.positionX = round1(clamp(attrs.positionX * scaleX + offset, 0, Math.max(0, targetDims.w - 24)));
+    if (Number.isFinite(attrs.positionY)) attrs.positionY = round1(clamp(attrs.positionY * scaleY + offset, 0, Math.max(0, targetDims.h - 24)));
+    if (Number.isFinite(attrs.boxWidth)) attrs.boxWidth = round1(clamp(attrs.boxWidth * scaleX, 40, targetDims.w));
+    if (node.type === 'image') {
+      if (Number.isFinite(attrs.width)) attrs.width = round1(clamp(attrs.width * scaleX, 24, targetDims.w));
+      if (Number.isFinite(attrs.height)) attrs.height = round1(clamp(attrs.height * scaleY, 24, targetDims.h));
+    }
+  }
+  const isBlank = (target.content || []).length === 1 && target.content[0]?.type === 'paragraph' && !(target.content[0].content || []).length;
+  target.content = [...(isBlank ? [] : (target.content || [])), ...pasted];
+  pendingScrollSectionId = target.id;
+  if (ctx.replaceModel(doc)) {
+    status(`${pasted.length} elemen berhasil ditempel ke canvas tujuan. Konten yang sudah ada tetap dipertahankan.`);
+    refreshPages();
+  } else pendingScrollSectionId = null;
 }
 
 function addCanvas() {
@@ -194,12 +324,13 @@ function moveCanvasSection(sectionId, delta) {
 
 function deleteCanvasSection(sectionId) {
   const doc = clone(ctx.getEditor().state.document);
-  const index = doc.sections.findIndex((s) => s.id === sectionId && s.kind === 'canvas');
+  const index = doc.sections.findIndex((s) => s.id === sectionId);
   if (index < 0) return;
-  if (doc.sections.length < 2) { status('Dokumen harus punya minimal satu section.'); return; }
-  if (!confirm('Hapus canvas ini beserta seluruh elemennya?')) return;
+  if (doc.sections.length < 2) { status('Dokumen harus menyisakan minimal satu halaman. Halaman terakhir dapat dikosongkan, tetapi tidak dapat dihapus seluruhnya.'); return; }
+  const section = doc.sections[index];
+  if (!confirm('Hapus halaman ' + (section.kind === 'canvas' ? 'Canvas' : 'dokumen') + ' ini beserta seluruh elemennya?')) return;
   doc.sections.splice(index, 1);
-  if (ctx.replaceModel(doc)) status('Canvas dihapus.');
+  if (ctx.replaceModel(doc)) status('Halaman dihapus. Halaman bawaan kosong tidak wajib dipertahankan.');
 }
 
 /** A section needs at least one block to stay valid; refill any emptied section with one empty paragraph. Returns true if it did. */
@@ -271,15 +402,23 @@ function setupBoxInteraction() {
     }
     if (drag.mode === 'move') {
       drag.x = clamp(drag.x0 + dx, 0, drag.sheetW - Math.min(drag.w0, drag.sheetW));
-      drag.y = clamp(drag.y0 + dy, 0, drag.sheetH - 24);
-      drag.box.style.left = `${drag.x}px`;
-      drag.box.style.top = `${drag.y}px`;
-      status(`Kotak teks: X ${Math.round(drag.x)}px, Y ${Math.round(drag.y)}px`);
+      drag.y = clamp(drag.y0 + dy, 0, drag.sheetH - 12);
+      drag.box.style.left = String(drag.x) + 'px';
+      drag.box.style.top = String(drag.y) + 'px';
+      status('Garis/objek: X ' + Math.round(drag.x) + 'px, Y ' + Math.round(drag.y) + 'px');
+    } else if (drag.mode === 'rotate') {
+      const rect = drag.box.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const angle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI;
+      drag.rotation = Math.round(drag.rotation0 + angle - drag.pointerAngle);
+      drag.box.style.transform = 'rotate(' + drag.rotation + 'deg)';
+      status('Rotasi garis: ' + drag.rotation + 'deg');
     } else {
       drag.w = clamp(drag.w0 + dx, 40, drag.sheetW - drag.x0);
-      drag.box.style.width = `${drag.w}px`;
+      drag.box.style.width = String(drag.w) + 'px';
       drag.box.style.maxWidth = 'none';
-      status(`Lebar kotak: ${Math.round(drag.w)}px`);
+      status('Lebar kotak: ' + Math.round(drag.w) + 'px');
     }
   }
   function finish(commit) {
@@ -289,20 +428,63 @@ function setupBoxInteraction() {
     detach();
     d.box.classList.remove('is-moving');
     try { if (d.handle.hasPointerCapture(d.pointerId)) d.handle.releasePointerCapture(d.pointerId); } catch { /* ignore */ }
-    if (!d.moved) return;
+    if (!d.moved) { if (d.wasFlow) ctx.render(); return; }
     if (!commit) { ctx.render(); status('Perubahan kotak dibatalkan'); return; }
     if (d.mode === 'move') writeBoxGeometry(d.id, { positionX: round1(d.x), positionY: round1(d.y) });
+    else if (d.mode === 'rotate') writeBoxGeometry(d.id, { rotation: d.rotation });
     else writeBoxGeometry(d.id, { boxWidth: Math.round(d.w) });
   }
   function onUp() { finish(true); }
   function onCancel() { finish(Boolean(drag && drag.moved)); }
   function onKey(e) { if (e.key === 'Escape') finish(false); }
 
+  root.addEventListener('keydown', (event) => {
+    if (ctx.getView() !== 'preview' || !selectedBox || selectionMode !== 'object') return;
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    const active = document.activeElement;
+    if (active?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(active?.tagName)) return;
+    const doc = clone(ctx.getEditor().state.document);
+    const section = doc.sections.find(item => item.kind === 'canvas' && (item.content || []).some(node => node.id === selectedBox));
+    if (!section) return;
+    const index = section.content.findIndex(node => node.id === selectedBox);
+    if (event.ctrlKey && event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      const next = clamp(index + (event.key === 'ArrowUp' ? -1 : 1), 0, section.content.length - 1);
+      if (next === index) return;
+      const [node] = section.content.splice(index, 1);
+      section.content.splice(next, 0, node);
+      event.preventDefault();
+      if (ctx.replaceModel(doc)) status(next < index ? 'Urutan objek dimajukan.' : 'Urutan objek dimundurkan.');
+      return;
+    }
+    const node = section.content[index];
+    const attrs = node.attrs || (node.attrs = {});
+    const step = event.shiftKey ? 10 : 1;
+    const dims = pageDims(section.page, ctx.PAGE_SIZES);
+    const x = Number.isFinite(attrs.positionX) ? attrs.positionX : 0;
+    const y = Number.isFinite(attrs.positionY) ? attrs.positionY : 0;
+    if (!Number.isFinite(attrs.positionX) || !Number.isFinite(attrs.positionY)) {
+      const el = root.querySelector('[data-box-id="' + cssId(selectedBox) + '"]');
+      if (el) {
+        const sheet = el.closest('.canvas-sheet');
+        const rect = el.getBoundingClientRect();
+        const sheetRect = sheet.getBoundingClientRect();
+        const zoom = zoomOf();
+        attrs.positionX = Math.max(0, (rect.left - sheetRect.left) / zoom);
+        attrs.positionY = Math.max(0, (rect.top - sheetRect.top) / zoom);
+      }
+    }
+    attrs.positionX = round1(clamp((Number(attrs.positionX) || x) + (event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0), 0, dims.w - 24));
+    attrs.positionY = round1(clamp((Number(attrs.positionY) || y) + (event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0), 0, dims.h - 24));
+    event.preventDefault();
+    if (ctx.replaceModel(doc)) status('Posisi objek disesuaikan dengan tombol panah' + (event.shiftKey ? ' (10 px).' : ' (1 px).'));
+  });
   root.addEventListener('pointerdown', (event) => {
     if (ctx.getView() !== 'preview' || event.button !== 0 || drag) return;
     const target = event.target instanceof Element ? event.target : event.target.parentElement;
     if (!target) return;
-    const box = target.closest('.canvas-box');
+    const flowBlock = target.closest('.canvas-flow-block');
+    const flowHandle = target.closest('.flow-box-handle, .flow-rotate-handle');
+    const box = target.closest('.canvas-box') || (flowBlock && flowHandle ? flowBlock : null);
     if (!box) {
       if (selectedBox) { selectedBox = null; selectionMode = null; applyBoxSelection(); }
       return;
@@ -310,7 +492,7 @@ function setupBoxInteraction() {
     selectedBox = box.dataset.boxId;
     ctx.clearImageSelection();
     applyBoxSelection();
-    const handle = target.closest('.box-handle, .box-resize');
+    const handle = target.closest('.box-handle, .box-resize, .box-rotate, .flow-box-handle, .flow-rotate-handle');
     if (!handle) { selectionMode = 'text'; return; } // plain click inside the text: let the browser place the caret
     selectionMode = 'object';
     // The box is selected as an object, not edited: drop the text caret so Delete/Backspace act on the object.
@@ -318,13 +500,33 @@ function setupBoxInteraction() {
     window.getSelection()?.removeAllRanges();
     event.preventDefault();
     const sheet = box.closest('.canvas-sheet');
+    const regionHost = box.closest('.canvas-header-layer, .canvas-footer-layer, .canvas-flow-layer') || sheet;
     const zoom = zoomOf();
     const boxRect = box.getBoundingClientRect();
+    const wasFlow = box.classList.contains('canvas-flow-block');
+    const hostRect = regionHost ? regionHost.getBoundingClientRect() : null;
+    const flowX = wasFlow && hostRect ? (boxRect.left - hostRect.left) / zoom : 0;
+    const flowY = wasFlow && hostRect ? (boxRect.top - hostRect.top) / zoom : 0;
+    const mode = handle.classList.contains('box-rotate') || handle.classList.contains('flow-rotate-handle') ? 'rotate' : (handle.classList.contains('box-resize') ? 'resize' : 'move');
+    const currentRotation = Number(box.dataset.rotation || 0) || 0;
+    if (wasFlow) {
+      box.style.position = 'absolute';
+      box.style.left = String(flowX) + 'px';
+      box.style.top = String(flowY) + 'px';
+      box.style.width = String(boxRect.width / zoom) + 'px';
+      box.style.maxWidth = 'none';
+      box.style.zIndex = '6';
+      regionHost.appendChild(box);
+    }
+    const centerX = boxRect.left + boxRect.width / 2;
+    const centerY = boxRect.top + boxRect.height / 2;
     drag = {
-      pointerId: event.pointerId, box, handle, id: box.dataset.boxId, mode: handle.classList.contains('box-resize') ? 'resize' : 'move',
+      pointerId: event.pointerId, box, handle, id: box.dataset.boxId, wasFlow, mode,
       zoom, px: event.clientX, py: event.clientY, moved: false,
-      x0: Number.parseFloat(box.style.left) || 0, y0: Number.parseFloat(box.style.top) || 0, w0: boxRect.width / zoom,
-      sheetW: sheet ? sheet.offsetWidth : 600, sheetH: sheet ? sheet.offsetHeight : 800,
+      x0: wasFlow ? flowX : (Number.parseFloat(box.style.left) || 0), y0: wasFlow ? flowY : (Number.parseFloat(box.style.top) || 0), w0: boxRect.width / zoom,
+      sheetW: regionHost ? regionHost.clientWidth : (sheet ? sheet.offsetWidth : 600), sheetH: regionHost ? Math.max(regionHost.clientHeight, sheet ? sheet.offsetHeight : 0) : (sheet ? sheet.offsetHeight : 800),
+      rotation0: currentRotation,
+      pointerAngle: Math.atan2(event.clientY - centerY, event.clientX - centerX) * 180 / Math.PI,
     };
     drag.x = drag.x0; drag.y = drag.y0; drag.w = drag.w0;
     try { handle.setPointerCapture(event.pointerId); } catch { /* ignore */ }
@@ -646,20 +848,26 @@ function renderPageList(doc) {
     const head = document.createElement('div');
     head.className = 'page-card-head';
     head.innerHTML = `<b>Halaman ${i + 1}</b><span class="page-badge${pg.kind === 'canvas' ? ' canvas' : ''}">${pg.kind === 'canvas' ? 'CANVAS' : 'ALUR'}</span>`;
+    const actions = document.createElement('span');
+    actions.className = 'page-card-actions';
     if (pg.kind === 'canvas') {
-      const actions = document.createElement('span');
-      actions.className = 'page-card-actions';
       const up = document.createElement('button');
-      up.type = 'button'; up.className = 'page-card-move'; up.textContent = '\u2191'; up.title = 'Pindahkan canvas ke urutan sebelumnya'; up.setAttribute('aria-label', `Pindahkan canvas halaman ${i + 1} ke atas`); up.disabled = pg.sectionIndex <= 0;
+      up.type = 'button'; up.className = 'page-card-move'; up.textContent = '\\u2191'; up.title = 'Pindahkan canvas ke urutan sebelumnya'; up.setAttribute('aria-label', 'Pindahkan canvas halaman ' + (i + 1) + ' ke atas'); up.disabled = pg.sectionIndex <= 0;
       up.addEventListener('click', (ev) => { ev.stopPropagation(); moveCanvasSection(pg.sectionId, -1); });
       const down = document.createElement('button');
-      down.type = 'button'; down.className = 'page-card-move'; down.textContent = '\u2193'; down.title = 'Pindahkan canvas ke urutan berikutnya'; down.setAttribute('aria-label', `Pindahkan canvas halaman ${i + 1} ke bawah`); down.disabled = pg.sectionIndex >= doc.sections.length - 1;
+      down.type = 'button'; down.className = 'page-card-move'; down.textContent = '\\u2193'; down.title = 'Pindahkan canvas ke urutan berikutnya'; down.setAttribute('aria-label', 'Pindahkan canvas halaman ' + (i + 1) + ' ke bawah'); down.disabled = pg.sectionIndex >= doc.sections.length - 1;
       down.addEventListener('click', (ev) => { ev.stopPropagation(); moveCanvasSection(pg.sectionId, 1); });
-      const del = document.createElement('button');
-      del.type = 'button'; del.className = 'page-card-del'; del.textContent = 'Hapus'; del.setAttribute('aria-label', `Hapus canvas halaman ${i + 1}`);
-      del.addEventListener('click', (ev) => { ev.stopPropagation(); deleteCanvasSection(pg.sectionId); });
-      actions.append(up, down, del); head.append(actions);
+      actions.append(up, down);
+      const copy = document.createElement('button');
+      copy.type = 'button'; copy.className = 'page-card-move page-card-copy'; copy.textContent = 'Salin'; copy.title = 'Salin seluruh isi canvas ini'; copy.setAttribute('aria-label', 'Salin isi canvas halaman ' + (i + 1));
+      copy.addEventListener('click', (ev) => { ev.stopPropagation(); copyCanvasContent(pg.sectionId); });
+      actions.append(copy);
     }
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'page-card-del'; del.textContent = 'Hapus'; del.setAttribute('aria-label', 'Hapus halaman ' + (i + 1));
+    del.addEventListener('click', (ev) => { ev.stopPropagation(); deleteCanvasSection(pg.sectionId); });
+    actions.append(del);
+    head.append(actions);
     card.append(head);
     if (i < MAX_THUMBS) card.append(thumbFor(pg, doc));
     const meta = document.createElement('div');
@@ -700,13 +908,62 @@ function trackActivePage() {
   if (index !== activePageIndex) setActivePage(index);
 }
 
+function splitOverflowingCanvas(doc, root) {
+  for (let sectionIndex = 0; sectionIndex < doc.sections.length; sectionIndex++) {
+    const section = doc.sections[sectionIndex];
+    if (section.kind !== 'canvas') continue;
+    const sheet = root.querySelector('.canvas-sheet[data-page-section="' + cssId(section.id) + '"]');
+    const flow = sheet?.querySelector('.canvas-flow-layer');
+    if (!sheet || !flow || flow.scrollHeight <= flow.clientHeight + 2) continue;
+
+    const sheetRect = sheet.getBoundingClientRect();
+    const bottomMargin = Number.parseFloat(getComputedStyle(sheet).getPropertyValue('--canvas-margin-bottom')) || 0;
+    const contentBottom = sheetRect.bottom - bottomMargin;
+    const flowBlocks = Array.from(flow.children).filter((el) => el.classList.contains('canvas-flow-block'));
+    const firstOverflow = flowBlocks.findIndex((el) => el.getBoundingClientRect().bottom > contentBottom + 1);
+    // A single block taller than the printable area cannot be split safely at the block boundary.
+    // Surface the condition instead of silently clipping it.
+    if (firstOverflow <= 0) {
+      if (sheet.dataset.layoutWarning !== 'unsplittable-overflow') {
+        sheet.dataset.layoutWarning = 'unsplittable-overflow';
+        sheet.title = 'Konten pada halaman ini lebih tinggi dari area cetak dan tidak dapat dipisah otomatis dalam satu blok.';
+        status('Peringatan tata letak: ada satu blok yang lebih tinggi dari area cetak. Pecah paragraf/tabel tersebut atau sesuaikan ukuran kontennya.');
+      }
+      continue;
+    }
+    delete sheet.dataset.layoutWarning;
+    if (sheet.title === 'Konten pada halaman ini lebih tinggi dari area cetak dan tidak dapat dipisah otomatis dalam satu blok.') sheet.removeAttribute('title');
+
+    const moved = new Set(flowBlocks.slice(firstOverflow).map((el) => section.content[Number(el.dataset.blockIndex)]).filter(Boolean));
+    if (!moved.size || moved.size >= section.content.length) continue;
+
+    const nextId = createIdAllocator(doc, ctx.ids);
+    const nextSection = cloneSectionWithFreshIds(section, nextId);
+    nextSection.kind = 'canvas';
+    // First-page variants belong only to the original page; regular/even-page header/footer can repeat.
+    delete nextSection.firstPageHeader;
+    delete nextSection.firstPageFooter;
+    // The overflowing flow nodes move, keeping their identities. Positioned objects stay on the page where
+    // their saved coordinates refer to. Duplicated header/footer/variants receive new IDs.
+    nextSection.content = section.content.filter((node) => moved.has(node));
+    section.content = section.content.filter((node) => !moved.has(node));
+    if (!section.content.length) section.content = [{ type: 'paragraph', id: nextId(), content: [] }];
+    pendingScrollSectionId = section.id;
+    doc.sections.splice(sectionIndex + 1, 0, nextSection);
+    if (ctx.replaceModel(doc)) status('Canvas dipaginasi otomatis: konten yang melewati batas halaman dipindahkan ke Canvas berikutnya.');
+    return true;
+  }
+  return false;
+}
+
 function refreshPages() {
   pagesTimer = 0;
   if (!ctx || ctx.getView() !== 'preview') return;
-  const doc = ctx.getEditor().state.document;
+  const doc = clone(ctx.getEditor().state.document);
   const root = paper();
   root.querySelectorAll('.page-marker').forEach((el) => el.remove());
-  pagesModel = computePages(doc);
+  if (splitOverflowingCanvas(doc, root)) return;
+  pagesModel = computePages(ctx.getEditor().state.document);
   pagesModel.forEach((pg) => { pg.anchor = pageAnchor(pg); });
   // Visible page boundaries inside the preview (flow pages only; canvas pages are separate sheets).
   pagesModel.forEach((pg, i) => {
@@ -743,6 +1000,13 @@ export function initPagesCanvas(context) {
     if (name === 'json') requestAnimationFrame(() => syncJsonToActiveSection());
   }));
   document.getElementById('addCanvas').addEventListener('click', addCanvas);
+  document.getElementById('pasteCanvasContent')?.addEventListener('click', pasteCopiedCanvasContent);
+  document.getElementById('copyActiveCanvas')?.addEventListener('click', () => {
+    const active = pagesModel[activePageIndex];
+    if (!active || active.kind !== 'canvas') { status('Pilih halaman CANVAS terlebih dahulu untuk menyalin isinya.'); return; }
+    copyCanvasContent(active.sectionId);
+  });
+  document.getElementById('pasteActiveCanvas')?.addEventListener('click', pasteCopiedCanvasContent);
   document.getElementById('addBox').addEventListener('click', addTextBox);
   document.getElementById('addCanvasImage').addEventListener('click', () => document.getElementById('canvasImageFile').click());
   document.getElementById('canvasImageFile').addEventListener('change', async (e) => {
@@ -752,6 +1016,36 @@ export function initPagesCanvas(context) {
   let scrollRaf = 0;
   scroller().addEventListener('scroll', () => { if (scrollRaf) return; scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; trackActivePage(); }); }, { passive: true });
   setupBoxInteraction();
+  // Clicking unused canvas whitespace creates a normal-flow paragraph and places the caret there,
+  // giving the page Word-like free typing while preserving explicitly positioned design objects.
+  paper().addEventListener('click', (event) => {
+    if (ctx.getView() !== 'preview') return;
+    const target = elementOf(event.target);
+    const sheet = target?.closest('.canvas-sheet');
+    const regionHost = target?.closest('.canvas-header-layer, .canvas-footer-layer, .canvas-flow-layer');
+    const region = regionHost?.classList.contains('canvas-header-layer') ? 'header' : regionHost?.classList.contains('canvas-footer-layer') ? 'footer' : 'content';
+    if (!sheet) return;
+    const sectionIndex = Number(sheet.dataset.sectionIndex);
+    const doc = clone(ctx.getEditor().state.document);
+    const section = doc.sections[sectionIndex];
+    if (!section || section.kind !== 'canvas') return;
+    const nextId = idFactory(doc);
+    const node = { type: 'paragraph', id: nextId(), content: [] };
+    section[region] = section[region] || [];
+    section[region].push(node);
+    if (!ctx.replaceModel(doc)) return;
+    requestAnimationFrame(() => {
+      const leaf = paper().querySelector('[data-block-id="' + cssId(node.id) + '"]');
+      if (!leaf) return;
+      leaf.focus();
+      const range = document.createRange();
+      range.selectNodeContents(leaf);
+      range.collapse(false);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    });
+  });
   // Interacting with a page (click / keyboard focus) makes it the active one, so DOCUMENT.JSON follows it.
   const activateFromEvent = (event) => {
     if (ctx.getView() !== 'preview') return;

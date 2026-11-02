@@ -25,6 +25,34 @@ describe("DOCX export adapter", () => {
     expect(Array.from(bytes.slice(0, 2))).toEqual([0x50, 0x4b]);
   });
 
+  it("substitutes placeholder tokens with field values when fieldValues are provided", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const doc = createDocument({
+      ids,
+      title: "Field values export",
+      content: [f.paragraph([f.text("Nomor: "), f.placeholder("surat.nomor")])],
+    });
+    const bytes = await exportDocx(doc);
+    const withValues = await exportDocx(doc, { fieldValues: { "surat.nomor": "SPJ/001/2026" } });
+    const documentXml = async (docBytes: Uint8Array) => (await JSZip.loadAsync(docBytes)).file("word/document.xml")!.async("string");
+    expect(await documentXml(bytes)).toContain("{{ surat.nomor }}");
+    expect(await documentXml(withValues)).toContain("SPJ/001/2026");
+  });
+
+  it("omits the empty starter section when exporting a document with real pages", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const doc = createDocument({ ids, content: [f.paragraph("")] });
+    const template = doc.sections[0]!;
+    const starter = { ...template, id: "starter-empty", kind: "flow" as const, content: [f.paragraph("")], header: [], footer: [] };
+    const canvas = { ...template, id: "canvas-content", kind: "canvas" as const, content: [f.paragraph("Visible document content")], header: [], footer: [] };
+    doc.sections = [starter, canvas];
+    const imported = await importDocx(await exportDocx(doc));
+    expect(imported.sections).toHaveLength(1);
+    expect(JSON.stringify(imported.sections)).toContain("Visible document content");
+  });
+
   it("uses a readable image fallback when no image resolver is provided", async () => {
     const ids = createSequentialIdGenerator();
     const f = createNodeFactory(ids);
@@ -45,6 +73,26 @@ describe("DOCX export adapter", () => {
     expect(images).toHaveLength(1);
     expect(images[0]?.attrs).toMatchObject({ alt: "Imported image", width: 32, height: 32 });
     expect(images[0]?.attrs?.src).toContain("data:image/png;base64,");
+  });
+
+  it("round-trips resized non-square images: size, aspect ratio and order of several images", async () => {
+    const ids = createSequentialIdGenerator();
+    const f = createNodeFactory(ids);
+    const wide = f.image("fixture:wide", { alt: "wide", width: 240, height: 135 });
+    wide.attrs = { ...(wide.attrs ?? {}), align: "right", lockAspect: true };
+    const tall = f.image("fixture:tall", { alt: "tall", width: 90, height: 160 });
+    const doc = createDocument({ ids, content: [f.paragraph("a"), wide, f.paragraph("b"), tall] });
+    const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lXcAAAAASUVORK5CYII="), c => c.charCodeAt(0));
+    const imported = await importDocx(await exportDocx(doc, { resolveImage: async () => ({ data: png, type: "png" }) }));
+    const content = imported.sections[0]!.content;
+    expect(content.map(node => node.type)).toEqual(["paragraph", "image", "paragraph", "image"]);
+    const [first, second] = content.filter(node => node.type === "image");
+    expect(Number(first!.attrs!.width)).toBeCloseTo(240, 0);
+    expect(Number(first!.attrs!.height)).toBeCloseTo(135, 0);
+    expect(Number(first!.attrs!.width) / Number(first!.attrs!.height)).toBeCloseTo(240 / 135, 2);
+    expect(first!.attrs!.align).toBe("right");
+    expect(Number(second!.attrs!.width)).toBeCloseTo(90, 0);
+    expect(Number(second!.attrs!.height)).toBeCloseTo(160, 0);
   });
 
   describe("free-positioned images", () => {

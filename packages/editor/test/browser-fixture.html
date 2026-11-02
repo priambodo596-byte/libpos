@@ -27,6 +27,7 @@
         const block = findBlock(info.id);
         for (const inline of block?.content ?? []) {
           if (inline.type === "text") el.append(document.createTextNode(inline.text));
+          else if (inline.type === "hardBreak") { const br = document.createElement("br"); br.dataset.inlineAtom = "true"; el.append(br); }
           else {
             const atom = document.createElement("span");
             atom.dataset.inlineAtom = "true";
@@ -56,6 +57,20 @@
         document.dispatchEvent(new Event("selectionchange"));
       },
       modelSelection: () => editor.state.selection,
+      addHiddenBreakBlock() {
+        const section = editor.state.document.sections[0];
+        const node = factory.paragraph([factory.text("A"), { type: "hardBreak" }, factory.text("B")]);
+        const result = editor.dispatch({ id: ids(), baseVersion: editor.state.version, ops: [{ type: "insert_block", parent: { kind: "section", id: section.id, slot: "content" }, index: section.content.length, node }], meta: { origin: "test.addHiddenBreakBlock", timestamp: new Date().toISOString() } });
+        if (!result.ok) throw result.error;
+        return node.id;
+      },
+      selectAcrossHardBreak(id) {
+        const el = root.querySelector(`[data-block-id="${id}"]`);
+        const first = el.firstChild, br = el.querySelector("br"), last = br.nextSibling;
+        const selection = document.getSelection();
+        selection.setBaseAndExtent(first, 0, last, 1);
+        document.dispatchEvent(new Event("selectionchange"));
+      },
       addAtomBlock() {
         const section = editor.state.document.sections[0];
         const node = factory.paragraph([factory.text("Atom"), factory.placeholder("inline"), factory.text("Tail")]);

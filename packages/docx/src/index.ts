@@ -23,13 +23,17 @@ import {
   type IRunOptions,
   type ParagraphChild,
 } from "docx";
-import { sectionUsesEvenPageVariant, sectionUsesFirstPageVariant, type BlockNode, type DocumentJSON, type Inline, type PageSetup } from "@convetlib/core";
+import { OFFICIAL_DOCUMENT_PROFILE, pageSetupForOrientation, sectionUsesEvenPageVariant, sectionUsesFirstPageVariant, type BlockNode, type DocumentJSON, type DocumentStyleProfile, type Inline, type PageSetup, type Section } from "@convetlib/core";
 
 export interface DocxExportOptions {
   /** Resolve an image source to bytes. Remote fetching is deliberately delegated to the host. */
   resolveImage?: (source: string) => Promise<{ data: Uint8Array; type: "png" | "jpg" | "gif" | "bmp" }>;
   /** Default fallback label used when an image cannot be resolved. */
   imageFallback?: (node: BlockNode) => string;
+  /** Field values keyed by placeholder key. Placeholder tokens ({{key}}) resolve to these values when set. */
+  fieldValues?: Record<string, string>;
+  /** Overrides the shared official-document typography defaults for this export. */
+  profile?: Partial<Omit<DocumentStyleProfile, "headingSizesPt">> & { headingSizesPt?: DocumentStyleProfile["headingSizesPt"] };
 }
 
 function stringAttr(node: BlockNode, key: string): string | undefined {
@@ -42,12 +46,16 @@ function numberAttr(node: BlockNode, key: string): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function textRuns(inline: readonly Inline[]): TextRun[] {
+function textRuns(inline: readonly Inline[], fieldValues?: Record<string, string>): TextRun[] {
   const runs: TextRun[] = [];
   for (const node of inline) {
     if (node.type === "text") {
-      const value = node as { type: "text"; text: string; marks?: Array<{ type: string }> };
+      const value = node as { type: "text"; text: string; marks?: Array<{ type: string; attrs?: Record<string, unknown> }> };
       const marks = new Set((value.marks ?? []).map(mark => mark.type));
+      const textStyle = value.marks?.find(mark => mark.type === "textStyle")?.attrs ?? {};
+      const color = typeof textStyle.color === "string" && /^#[0-9a-f]{6}$/i.test(textStyle.color) ? textStyle.color.slice(1).toUpperCase() : undefined;
+      const fontFamily = typeof textStyle.fontFamily === "string" ? textStyle.fontFamily : undefined;
+      const fontSize = typeof textStyle.fontSize === "number" && Number.isFinite(textStyle.fontSize) && textStyle.fontSize > 0 ? Math.round(textStyle.fontSize * 2) : undefined;
       const options: IRunOptions = {
         text: value.text,
         bold: marks.has("bold"),
@@ -56,6 +64,8 @@ function textRuns(inline: readonly Inline[]): TextRun[] {
         ...(marks.has("underline") ? { underline: {} } : {}),
         superScript: marks.has("superscript"),
         subScript: marks.has("subscript"),
+        ...(color ? { color } : {}),
+        ...(fontFamily || fontSize ? { font: { name: fontFamily ?? "Times New Roman", ...(fontSize ? { size: fontSize } : {}) } } : {}),
       };
       runs.push(new TextRun(options));
     } else if (node.type === "hardBreak") {
@@ -63,7 +73,10 @@ function textRuns(inline: readonly Inline[]): TextRun[] {
     } else if (node.type === "placeholder") {
       const attrs = (node as { attrs?: Record<string, unknown> }).attrs;
       const key = typeof attrs?.key === "string" ? attrs.key : "unknown";
-      runs.push(new TextRun({ text: "{{ " + key + " }}" }));
+      const fieldValue = fieldValues?.[key];
+      const fallback = typeof attrs?.fallback === "string" ? attrs.fallback : undefined;
+      const text = typeof fieldValue === "string" && fieldValue ? fieldValue : (fallback ?? "{{ " + key + " }}");
+      runs.push(new TextRun({ text }));
     } else if (node.type === "pageNumber") {
       runs.push(new TextRun({ text: "{{ pageNumber }}" }));
     } else if (node.type === "pageCount") {
@@ -73,9 +86,9 @@ function textRuns(inline: readonly Inline[]): TextRun[] {
   return runs;
 }
 
-function paragraphChildren(node: BlockNode): ParagraphChild[] {
+function paragraphChildren(node: BlockNode, fieldValues?: Record<string, string>): ParagraphChild[] {
   const content = (node.content ?? []).filter((child): child is Inline => child.type === "text" || child.type === "hardBreak" || child.type === "placeholder" || child.type === "pageNumber" || child.type === "pageCount");
-  return textRuns(content);
+  return textRuns(content, fieldValues);
 }
 
 function alignment(node: BlockNode): (typeof AlignmentType)[keyof typeof AlignmentType] | undefined {
@@ -87,7 +100,7 @@ function alignment(node: BlockNode): (typeof AlignmentType)[keyof typeof Alignme
   return undefined;
 }
 
-function paragraph(node: BlockNode): Paragraph {
+function paragraph(node: BlockNode, fieldValues?: Record<string, string>): Paragraph {
   const align = alignment(node);
   const level = numberAttr(node, "level") ?? 1;
   const heading = level <= 1 ? HeadingLevel.HEADING_1
@@ -102,7 +115,7 @@ function paragraph(node: BlockNode): Paragraph {
   const firstLineIndent = numberAttr(node, "firstLineIndent");
   const lineSpacing = numberAttr(node, "lineSpacing");
   const options = {
-    children: paragraphChildren(node),
+    children: paragraphChildren(node, fieldValues),
     ...(align ? { alignment: align } : {}),
     ...(node.type === "heading" ? { heading } : {}),
     ...(node.type === "codeBlock" ? { style: "No Spacing" } : {}),
@@ -218,7 +231,7 @@ async function blockToParagraphs(node: BlockNode, options: DocxExportOptions): P
         for (const child of cellNode.content ?? []) {
           if (!("id" in child)) continue;
           const cellBlock = child as BlockNode;
-          if (cellBlock.type === "paragraph" || cellBlock.type === "heading" || cellBlock.type === "codeBlock") paragraphs.push(paragraph(cellBlock));
+          if (cellBlock.type === "paragraph" || cellBlock.type === "heading" || cellBlock.type === "codeBlock") paragraphs.push(paragraph(cellBlock, options.fieldValues));
           else if (cellBlock.type === "image") paragraphs.push(new Paragraph({ text: options.imageFallback?.(cellBlock) ?? "[Image]" }));
         }
         if (!paragraphs.length) paragraphs.push(new Paragraph({ text: plainText(cellNode) }));
@@ -282,9 +295,9 @@ async function blockToParagraphs(node: BlockNode, options: DocxExportOptions): P
     }
     return items.length ? items : [new Paragraph({ text: "" })];
   }
-  if (node.type === "horizontalRule") return [paragraph(node)];
+  if (node.type === "horizontalRule") return [paragraph(node, options.fieldValues)];
   if (node.type === "paragraph" || node.type === "heading" || node.type === "codeBlock" || node.type === "blockquote" || node.type === "listItem") {
-    return [paragraph(node)];
+    return [paragraph(node, options.fieldValues)];
   }
   return [new Paragraph({ text: plainText(node) })];
 }
@@ -293,13 +306,40 @@ async function blockToParagraphs(node: BlockNode, options: DocxExportOptions): P
  * Export the current document model to a DOCX byte array.
  * This is a semantic export, not a pixel-perfect HTML/CSS conversion.
  */
+type MeaningfulNode = { type: string; text?: string; content?: readonly MeaningfulNode[] };
+
+function hasMeaningfulNodes(nodes: readonly MeaningfulNode[] | undefined): boolean {
+  return (nodes ?? []).some((node) => {
+    if (node.type === 'image' || node.type === 'table' || node.type === 'horizontalRule' || node.type === 'pageBreak') return true;
+    if (node.type === 'text') return Boolean(node.text?.trim());
+    if (node.type === 'placeholder' || node.type === 'hardBreak') return true;
+    return hasMeaningfulNodes(node.content);
+  });
+}
+
+function isEmptyLeadingSection(section: Section): boolean {
+  const regions = [section.header, section.content, section.footer, section.firstPageHeader, section.firstPageFooter, section.evenPageHeader, section.evenPageFooter];
+  return !regions.some((region) => hasMeaningfulNodes(region as readonly MeaningfulNode[] | undefined));
+}
+
+function sectionsForExport(sections: readonly Section[]): Section[] {
+  const result = [...sections];
+  // The playground's initial empty flow section is only a starter page, not document content.
+  // Remove only leading empty sections and always preserve at least one page for a blank document.
+  while (result.length > 1 && isEmptyLeadingSection(result[0]!)) result.shift();
+  return result;
+}
+
 export async function exportDocx(document: DocumentJSON, options: DocxExportOptions = {}): Promise<Uint8Array> {
   if (!document || !Array.isArray(document.sections) || document.sections.length === 0) {
     throw new TypeError("A document with at least one section is required");
   }
   const sections = [];
-  let anyEvenVariant = false;
-  for (const section of document.sections) {
+  const exportSections = sectionsForExport(document.sections).map(section => options.profile?.page && section.kind !== "canvas"
+    ? { ...section, page: pageSetupForOrientation(options.profile.page, section.page.orientation) }
+    : section);
+  const anyEvenVariant = exportSections.some(sectionUsesEvenPageVariant);
+  for (const section of exportSections) {
     const children: Array<Paragraph | Table> = [];
     for (const block of section.content) children.push(...await blockToParagraphs(block, options));
     if (!children.length) children.push(new Paragraph({ text: "" }));
@@ -315,17 +355,20 @@ export async function exportDocx(document: DocumentJSON, options: DocxExportOpti
     };
     const variantHeader = async (blocks: readonly BlockNode[] | undefined) => new Header({ children: await variantChildren(blocks) });
     const variantFooter = async (blocks: readonly BlockNode[] | undefined) => new Footer({ children: await variantChildren(blocks) });
-    const headerChildren = await regionChildren(section.header);
-    const footerChildren = await regionChildren(section.footer);
     const usesFirst = sectionUsesFirstPageVariant(section);
     const usesEven = sectionUsesEvenPageVariant(section);
     const headers: Record<string, Header> = {};
     const footers: Record<string, Footer> = {};
-    if (headerChildren.length) headers.default = new Header({ children: headerChildren });
-    if (footerChildren.length) footers.default = new Footer({ children: footerChildren });
+    // Write explicit defaults for every section so Word cannot inherit a prior section's letterhead by accident.
+    headers.default = await variantHeader(section.header);
+    footers.default = await variantFooter(section.footer);
     if (usesFirst) { headers.first = await variantHeader(section.firstPageHeader); footers.first = await variantFooter(section.firstPageFooter); }
-    if (usesEven) { headers.even = await variantHeader(section.evenPageHeader); footers.even = await variantFooter(section.evenPageFooter); }
-    anyEvenVariant ||= usesEven;
+    if (usesEven || anyEvenVariant) {
+      // Even/odd handling is a document-wide Word setting. In sections without an explicit variant, repeat their
+      // regular header/footer on even pages instead of leaking the preceding section's even-page part.
+      headers.even = await variantHeader(usesEven ? section.evenPageHeader : section.header);
+      footers.even = await variantFooter(usesEven ? section.evenPageFooter : section.footer);
+    }
     sections.push({
       properties: { page: pageProperties(section.page), ...(usesFirst ? { titlePage: true } : {}) },
       ...(Object.keys(headers).length ? { headers } : {}),
@@ -333,6 +376,9 @@ export async function exportDocx(document: DocumentJSON, options: DocxExportOpti
       children,
     });
   }
+  const profile = { ...OFFICIAL_DOCUMENT_PROFILE, ...options.profile };
+  const headingSizes = options.profile?.headingSizesPt ?? OFFICIAL_DOCUMENT_PROFILE.headingSizesPt;
+  const lineTwips = Math.round(profile.fontSizePt * 20 * profile.paragraphLineSpacing);
   const doc = new Document({
     title: document.meta.title,
     creator: "Convetlib",
@@ -341,12 +387,12 @@ export async function exportDocx(document: DocumentJSON, options: DocxExportOpti
     styles: {
       default: {
         document: {
-          run: { font: "Times New Roman", size: 24, color: "000000" },
-          paragraph: { spacing: { after: 120, line: 276, lineRule: "auto" } },
+          run: { font: profile.fontFamily, size: Math.round(profile.fontSizePt * 2), color: "000000" },
+          paragraph: { spacing: { after: Math.round(profile.paragraphSpacingAfterPt * 20), line: lineTwips, lineRule: "auto" } },
         },
-        heading1: { run: { font: "Times New Roman", size: 32, bold: true, color: "000000" }, paragraph: { spacing: { before: 240, after: 120 }, keepNext: true } },
-        heading2: { run: { font: "Times New Roman", size: 28, bold: true, color: "000000" }, paragraph: { spacing: { before: 200, after: 100 }, keepNext: true } },
-        heading3: { run: { font: "Times New Roman", size: 26, bold: true, color: "000000" }, paragraph: { spacing: { before: 160, after: 80 }, keepNext: true } },
+        heading1: { run: { font: profile.fontFamily, size: Math.round(headingSizes[0] * 2), bold: true, color: "000000" }, paragraph: { spacing: { before: 240, after: 120 }, keepNext: true } },
+        heading2: { run: { font: profile.fontFamily, size: Math.round(headingSizes[1] * 2), bold: true, color: "000000" }, paragraph: { spacing: { before: 200, after: 100 }, keepNext: true } },
+        heading3: { run: { font: profile.fontFamily, size: Math.round(headingSizes[2] * 2), bold: true, color: "000000" }, paragraph: { spacing: { before: 160, after: 80 }, keepNext: true } },
       },
     },
     sections,

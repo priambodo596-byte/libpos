@@ -25,7 +25,7 @@ function leafBlockAt(root: HTMLElement, node: Node | null): HTMLElement | undefi
   return block && root.contains(block) ? block : undefined;
 }
 function isInlineAtom(node: Node): node is HTMLElement {
-  return node.nodeType === Node.ELEMENT_NODE && (node as Element).hasAttribute("data-inline-atom");
+  return node.nodeType === Node.ELEMENT_NODE && ((node as Element).hasAttribute("data-inline-atom") || (node as Element).tagName === "BR");
 }
 function domModelLength(node: Node): number {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent?.length ?? 0;
@@ -140,6 +140,9 @@ export function bindBrowserEditor(editor: Editor, options: BrowserEditorBindingO
   listen(root,"cut",(raw)=>{const e=raw as ClipboardEvent;if(options.readOnly||!e.clipboardData)return;sync();const p=cutSelection(editor);if(!p)return;e.clipboardData.setData("text/plain",p.text);if(p.html)e.clipboardData.setData("text/html",p.html);e.preventDefault();update();});
   listen(root,"paste",(raw)=>{const e=raw as ClipboardEvent;if(options.readOnly)return;sync();const p=clipboardPayloadFromEvent(e);if(!p)return;run(()=>p.mime==="text/plain"?editor.commands.execute("text.insert",{text:p.text}).ok:pasteClipboardPayload(editor,p),e);});
   listen(doc,"selectionchange",()=>{if(!composing)sync();});
+  // Keep the native range visible after the user releases the mouse. Some browsers
+  // collapse the visual range when focus changes inside the editor toolbar.
+  listen(root,"mouseup",()=>{if(composing)return;sync();const selection=editor.state.selection;if(selection&& (selection.anchor.blockId!==selection.head.blockId||selection.anchor.offset!==selection.head.offset))restoreDomSelection(root,selection);});
   const refreshSelection=()=>{if(disposed)return false;try{return writeModelSelection(root,editor);}catch(e){report(e);return false;}};
   const unsubscribe=editor.on("state:change",({transaction})=>{if(!disposed&&transaction.meta.origin!=="selection.set"){try{options.render?.();restoreDomSelection(root,editor.state.selection);}catch(e){report(e);}}});
   if(typeof unsubscribe==="function")disposers.push(unsubscribe);

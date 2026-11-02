@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
-import { resolveSectionHeaderFooter, type BlockNode, type DocumentJSON, type PageSetup, type Section } from "@convetlib/core";
+import { OFFICIAL_DOCUMENT_PROFILE, pageSetupForOrientation, resolveSectionHeaderFooter, type BlockNode, type DocumentJSON, type DocumentStyleProfile, type PageSetup, type Section } from "@convetlib/core";
 import { buildTableGrid, computeRowHeights, rowGroups, type GridCell } from "./table-layout";
 
 export interface PdfExportOptions {
@@ -24,6 +24,10 @@ export interface PdfExportOptions {
   footer?: string;
   /** Draw a default "Page N of M" footer when no custom footer is provided. */
   pageNumbering?: boolean;
+  /** Field values keyed by placeholder key. Placeholder tokens ({{key}}) resolve to these values when set. */
+  fieldValues?: Record<string, string>;
+  /** Overrides the shared official-document typography defaults for this export. */
+  profile?: Partial<Omit<DocumentStyleProfile, "headingSizesPt">> & { headingSizesPt?: DocumentStyleProfile["headingSizesPt"] };
 }
 
 function twipsToPoints(value: number, fallback: number): number {
@@ -35,17 +39,21 @@ function safePdfText(value: string, unicode = false): string {
   return unicode ? value : value.replace(/[^\x20-\x7E\u00A0-\u00FF]/g, "?");
 }
 
-function nodeText(node: BlockNode): string {
+function nodeText(node: BlockNode, options?: { fieldValues?: Record<string, string> }): string {
   if (node.type === "image") {
     const alt = node.attrs?.alt;
     return "[Image" + (typeof alt === "string" ? ": " + alt : "") + "]";
   }
   return (node.content ?? []).map(child => {
     if (child.type === "text") return (child as { text: string }).text;
-    if ("id" in child) return nodeText(child as BlockNode);
+    if ("id" in child) return nodeText(child as BlockNode, options);
     if (child.type === "placeholder") {
       const attrs = (child as { attrs?: Record<string, unknown> }).attrs;
-      return "{{ " + (typeof attrs?.key === "string" ? attrs.key : "unknown") + " }}";
+      const key = typeof attrs?.key === "string" ? attrs.key : "unknown";
+      const token = "{{ " + key + " }}";
+      const value = options?.fieldValues?.[key];
+      const fallback = typeof attrs?.fallback === "string" ? attrs.fallback : undefined;
+      return typeof value === "string" && value ? value : (fallback ?? token);
     }
     if (child.type === "pageNumber") return "{{ pageNumber }}";
     if (child.type === "pageCount") return "{{ pageCount }}";
@@ -113,6 +121,30 @@ function freeImageRect(attrs: Record<string, unknown> | undefined, natural: { wi
   return { x, y, width, height };
 }
 
+type MeaningfulNode = { type: string; text?: string; content?: readonly MeaningfulNode[] };
+
+function hasMeaningfulNodes(nodes: readonly MeaningfulNode[] | undefined): boolean {
+  return (nodes ?? []).some((node) => {
+    if (node.type === 'image' || node.type === 'table' || node.type === 'horizontalRule' || node.type === 'pageBreak') return true;
+    if (node.type === 'text') return Boolean(node.text?.trim());
+    if (node.type === 'placeholder' || node.type === 'hardBreak') return true;
+    return hasMeaningfulNodes(node.content);
+  });
+}
+
+function isEmptyLeadingSection(section: Section): boolean {
+  const regions = [section.header, section.content, section.footer, section.firstPageHeader, section.firstPageFooter, section.evenPageHeader, section.evenPageFooter];
+  return !regions.some((region) => hasMeaningfulNodes(region as readonly MeaningfulNode[] | undefined));
+}
+
+function sectionsForExport(sections: readonly Section[]): Section[] {
+  const result = [...sections];
+  // The playground's initial empty flow section is only a starter page, not document content.
+  // Remove only leading empty sections and always preserve at least one page for a blank document.
+  while (result.length > 1 && isEmptyLeadingSection(result[0]!)) result.shift();
+  return result;
+}
+
 export async function exportPdf(document: DocumentJSON, options: PdfExportOptions = {}): Promise<Uint8Array> {
   if (!document || !Array.isArray(document.sections) || document.sections.length === 0) {
     throw new TypeError("A document with at least one section is required");
@@ -139,17 +171,22 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
     italic = await pdf.embedFont(StandardFonts.TimesRomanItalic);
     boldItalic = await pdf.embedFont(StandardFonts.TimesRomanBoldItalic);
   }
-  const bodySize = Math.max(6, Math.min(36, options.fontSize ?? 11));
-  const paragraphGap = Math.max(0, Math.min(48, options.paragraphGap ?? 5));
+  const profile = { ...OFFICIAL_DOCUMENT_PROFILE, ...options.profile };
+  const bodySize = Math.max(6, Math.min(36, options.fontSize ?? profile.fontSizePt));
+  const paragraphGap = Math.max(0, Math.min(48, options.paragraphGap ?? profile.paragraphSpacingAfterPt));
+  const lineSpacing = Math.max(1, Math.min(3, profile.paragraphLineSpacing));
   const pageLayouts: Array<{ page: PDFPage; dimensions: ReturnType<typeof pageDimensions>; section: Section }> = [];
 
-  for (const section of document.sections) {
+  const exportSections = sectionsForExport(document.sections).map(section => options.profile?.page && section.kind !== "canvas"
+    ? { ...section, page: pageSetupForOrientation(options.profile.page, section.page.orientation) }
+    : section);
+  for (const section of exportSections) {
     const dimensions = pageDimensions(section.page);
     let page: PDFPage = pdf.addPage([dimensions.width, dimensions.height]);
     pageLayouts.push({ page, dimensions, section });
     let y = dimensions.height - dimensions.top;
     const maxWidth = dimensions.width - dimensions.left - dimensions.right;
-    const lineHeight = bodySize * 1.35;
+    const lineHeight = bodySize * lineSpacing;
 
     const newPage = (setup: PageSetup = section.page) => {
       const d = pageDimensions(setup);
@@ -163,12 +200,12 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
     const drawWrapped = (text: string, font: PDFFont, size: number, gapAfter = 0, align: unknown = "left") => {
       const lines = wrapText(text, font, size, maxWidth, Boolean(options.fontBytes));
       for (const line of lines) {
-        ensureSpace(size * 1.35);
+        ensureSpace(size * lineSpacing);
         const lineWidth = font.widthOfTextAtSize(safePdfText(line, Boolean(options.fontBytes)), size);
         const normalizedAlign = align === "center" || align === "right" || align === "justify" ? align : "left";
         const x = normalizedAlign === "center" ? dimensions.left + Math.max(0, (maxWidth - lineWidth) / 2) : normalizedAlign === "right" ? dimensions.left + Math.max(0, maxWidth - lineWidth) : dimensions.left;
         page.drawText(line, { x, y: y - size, size, font, color: rgb(0, 0, 0) });
-        y -= size * 1.35;
+        y -= size * lineSpacing;
       }
       y -= gapAfter;
     };
@@ -177,37 +214,43 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
       const inline = block.content ?? [];
       const runs = inline.map(item => {
         if (item.type === "text") {
-          const textNode = item as { text: string; marks?: Array<{ type: string }> };
+          const textNode = item as { text: string; marks?: Array<{ type: string; attrs?: Record<string, unknown> }> };
           const marks = textNode.marks ?? [];
           const isBold = marks.some(mark => mark.type === "bold");
           const isItalic = marks.some(mark => mark.type === "italic");
           const font = isBold && isItalic ? boldItalic : isBold ? bold : isItalic ? italic : defaultFont;
-          return { text: textNode.text, font, underline: marks.some(mark => mark.type === "underline"), strike: marks.some(mark => mark.type === "strike") };
+          const style = marks.find(mark => mark.type === "textStyle")?.attrs ?? {};
+          const color = typeof style.color === "string" && /^#[0-9a-f]{6}$/i.test(style.color) ? style.color : "#000000";
+          return { text: textNode.text, font, color, underline: marks.some(mark => mark.type === "underline"), strike: marks.some(mark => mark.type === "strike") };
         }
-        if (item.type === "hardBreak") return { text: "\n", font: defaultFont, underline: false, strike: false };
+        if (item.type === "hardBreak") return { text: "\n", font: defaultFont, color: "#000000", underline: false, strike: false };
         if (item.type === "placeholder") {
           const attrs = (item as { attrs?: Record<string, unknown> }).attrs;
-          return { text: "{{ " + (typeof attrs?.key === "string" ? attrs.key : "unknown") + " }}", font: defaultFont, underline: false, strike: false };
+          const key = typeof attrs?.key === "string" ? attrs.key : "unknown";
+          const value = options.fieldValues?.[key];
+          const fallback = typeof attrs?.fallback === "string" ? attrs.fallback : undefined;
+          return { text: typeof value === "string" && value ? value : (fallback ?? "{{ " + key + " }}"), font: defaultFont, color: "#000000", underline: false, strike: false };
         }
-        return { text: "", font: defaultFont, underline: false, strike: false };
+        return { text: "", font: defaultFont, color: "#000000", underline: false, strike: false };
       }).filter(run => run.text.length > 0);
       const tokens = runs.flatMap(run => (run.text.match(/\s+|[^\s]+/gu) ?? []).map(text => ({ ...run, text })));
       let line = [] as typeof tokens;
       const widthOf = (parts: typeof tokens) => parts.reduce((sum, part) => sum + part.font.widthOfTextAtSize(part.text, baseSize), 0);
       const drawLine = () => {
-        if (!line.length) { y -= baseSize * 1.35; return; }
+        if (!line.length) { y -= baseSize * lineSpacing; return; }
         ensureSpace(baseSize * 1.5);
         let x = dimensions.left;
         const lineY = y - baseSize;
         for (const part of line) {
           const clean = safePdfText(part.text, Boolean(options.fontBytes));
           const width = part.font.widthOfTextAtSize(clean, baseSize);
-          page.drawText(clean, { x, y: lineY, size: baseSize, font: part.font, color: rgb(0, 0, 0) });
+          const hex = part.color.slice(1); const red = Number.parseInt(hex.slice(0, 2), 16) / 255; const green = Number.parseInt(hex.slice(2, 4), 16) / 255; const blue = Number.parseInt(hex.slice(4, 6), 16) / 255; const textColor = rgb(red, green, blue);
+          page.drawText(clean, { x, y: lineY, size: baseSize, font: part.font, color: textColor });
           if (part.underline) page.drawLine({ start: { x, y: lineY - 1 }, end: { x: x + width, y: lineY - 1 }, thickness: 0.5, color: rgb(0, 0, 0) });
           if (part.strike) page.drawLine({ start: { x, y: lineY + baseSize * 0.35 }, end: { x: x + width, y: lineY + baseSize * 0.35 }, thickness: 0.5, color: rgb(0, 0, 0) });
           x += width;
         }
-        y -= baseSize * 1.35;
+        y -= baseSize * lineSpacing;
         line = [];
       };
       for (const token of tokens) {
@@ -225,12 +268,12 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
       if (block.type === "heading") {
         // Keep a heading with the following text block where possible, avoiding a heading stranded at the bottom of a page.
         const level = typeof block.attrs?.level === "number" ? block.attrs.level : 1;
-        const headingSize = Math.max(bodySize, 20 - Math.min(6, level) * 1.5);
-        const headingLines = Math.max(1, wrapText(nodeText(block), bold, headingSize, maxWidth, Boolean(options.fontBytes)).length);
+        const headingSize = Math.max(bodySize, (options.profile?.headingSizesPt ?? OFFICIAL_DOCUMENT_PROFILE.headingSizesPt)[Math.min(2, Math.max(0, level - 1))]!);
+        const headingLines = Math.max(1, wrapText(nodeText(block, options), bold, headingSize, maxWidth, Boolean(options.fontBytes)).length);
         const next = section.content[blockIndex + 1];
         const nextIsText = next && ["paragraph", "heading", "listItem", "bulletList", "orderedList"].includes(next.type);
-        const nextLines = nextIsText ? Math.max(1, wrapText(nodeText(next), regular, bodySize, maxWidth, Boolean(options.fontBytes)).length) : 0;
-        if (nextLines) ensureSpace(headingLines * headingSize * 1.35 + nextLines * bodySize * 1.35 + paragraphGap * 2);
+        const nextLines = nextIsText ? Math.max(1, wrapText(nodeText(next, options), regular, bodySize, maxWidth, Boolean(options.fontBytes)).length) : 0;
+        if (nextLines) ensureSpace(headingLines * headingSize * lineSpacing + nextLines * bodySize * lineSpacing + paragraphGap * 2);
       }
       if (block.type === "image") {
         const source = block.attrs?.src;
@@ -260,7 +303,7 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
           page.drawImage(embedded, { x: imageX, y: y - height, width, height });
           y -= height + paragraphGap;
         } else {
-          drawWrapped(nodeText(block), regular, bodySize, paragraphGap);
+          drawWrapped(nodeText(block, options), regular, bodySize, paragraphGap);
         }
         continue;
       }
@@ -351,9 +394,10 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
         y -= paragraphGap;
         continue;
       }
-      const text = nodeText(block);
+      const text = nodeText(block, options);
       if ((block.type === "paragraph" || block.type === "heading") && (block.content ?? []).some(item => item.type === "text" && Array.isArray((item as { marks?: unknown }).marks) && ((item as { marks: unknown[] }).marks.length > 0))) {
-        const richSize = block.type === "heading" ? Math.max(bodySize, 20 - Math.min(6, typeof block.attrs?.level === "number" ? block.attrs.level : 1) * 1.5) : bodySize;
+        const level = typeof block.attrs?.level === "number" ? block.attrs.level : 1;
+        const richSize = block.type === "heading" ? Math.max(bodySize, (options.profile?.headingSizesPt ?? OFFICIAL_DOCUMENT_PROFILE.headingSizesPt)[Math.min(2, Math.max(0, level - 1))]!) : bodySize;
         drawRichBlock(block, richSize, block.type === "heading" ? bold : regular);
         continue;
       }
@@ -407,7 +451,7 @@ export async function exportPdf(document: DocumentJSON, options: PdfExportOption
             offset += height + 2;
           } catch { /* Unresolvable image sources are skipped rather than breaking export. */ }
         } else {
-          const text = safePdfText(replaceTokens(nodeText(block)), Boolean(options.fontBytes));
+          const text = safePdfText(replaceTokens(nodeText(block, options)), Boolean(options.fontBytes));
           if (text) {
             const y = region === "header" ? dimensions.height - Math.max(18, dimensions.top * 0.55) - offset : Math.max(8, dimensions.bottom * 0.35) + offset;
             page.drawText(text.slice(0, 180), { x: dimensions.left, y, size: 9, font: regular, color: rgb(0, 0, 0) });

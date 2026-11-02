@@ -244,6 +244,8 @@ export const CORE_NODE_SPECS: readonly NodeSpec[] = [
       // Both must be present for the image to leave normal flow; absent attributes keep the legacy flow/align layout.
       positionX: { validate: isNonNegativeNumber },
       positionY: { validate: isNonNegativeNumber },
+      // Editor preference: keep the aspect ratio when the image is resized. Optional; exporters ignore it.
+      lockAspect: { validate: (v) => typeof v === "boolean" },
     },
   },
   { name: "bulletList", kind: "block", groups: ["block"], content: { children: "block", allow: ["listItem"], min: 1 } },

@@ -44,6 +44,7 @@ Berikut bukti tampilan Playground terbaru. Gambar disimpan di repository agar la
 
 - Model dokumen JSON berversi, schema validation, serta parsing/migrasi dokumen.
 - Document factory untuk membuat dokumen, paragraph, heading, list, tabel, gambar, placeholder, dan page break.
+- Profil dasar dokumen resmi yang seragam: A4, margin kiri 30 mm, margin lain 20 mm, Times New Roman 12 pt, dan spasi baris 1,15. Profil dapat dioverride saat ekspor.
 - Engine editor framework-agnostic dengan immutable state snapshot.
 - Transaction/operation sebagai jalur perubahan dokumen, validasi atomik, command registry, dan typed events.
 - Plugin lifecycle dan kontrak adapter untuk storage serta collaboration.
@@ -53,7 +54,7 @@ Berikut bukti tampilan Playground terbaru. Gambar disimpan di repository agar la
 
 - Perintah insert/replacement teks, delete, split paragraph, paragraph/heading conversion, alignment, dan bold/italic/underline/strike.
 - Pengeditan lintas blok yang didukung planner, termasuk sejumlah struktur bersarang.
-- Penggantian seleksi lintas section untuk blok teks tingkat atas pada body dokumen; header/footer dan struktur bersarang lintas section ditolak secara aman.
+- Penggantian seleksi teks lintas section pada body; playground juga mendukung drag blok lintas section dan antara body, header/footer default, serta varian halaman pertama/genap.
 - Perintah penghapusan baris/kolom tabel dengan guard untuk struktur yang tidak aman.
 - Keyboard shortcut helper, clipboard plain/rich/structural utilities, HTML importer konservatif untuk teks dan urutan paragraf-gambar-tabel sederhana, fondasi pagination berbasis pengukuran host dengan dukungan `keepWithNext`, serta composition/IME utilities.
 - Browser DOM binder untuk menghubungkan event input dan selection ke model.
@@ -70,7 +71,7 @@ Berikut bukti tampilan Playground terbaru. Gambar disimpan di repository agar la
 - Embedded supported raster images (PNG, JPEG, GIF, BMP) are imported as editable block-level image nodes with data URIs and dimensions when available. Their position is approximated at paragraph level; exact inline positioning is not preserved.
 - Word numbering definitions map to structured ordered/bullet lists, including nested levels (up to 9 levels), per-list start overrides, and level overrides. Supported images in list paragraphs remain block-level children of the matching list item; inline positioning within a text run is not represented. Advanced restart/override semantics and numbering formats beyond bullet-versus-ordered are not fully preserved. See the Stage 19 and Stage 20 visual proofs in `docs/stage-reports/stage-19-numbering-proof.png` and `docs/stage-reports/stage-20-list-image-proof.png`.
 - Safe hyperlinks (`http`, `https`, `mailto`, and internal anchors) are imported as `link` marks; unsupported or unsafe schemes are not retained.
-- Default section headers and footers are imported as section-level block content. Header/footer variants, their own image relationships, and different-first/even-page behavior are not yet preserved.
+- Header/footer default, first-page, dan even-page termasuk relasi gambar header/footer diimpor untuk section dokumen pertama; ekspor DOCX mendukung semua section dan varian tersebut.
 - Optional host-provided image resolver for export; remote images are not fetched implicitly.
 - DOCX import is a semantic foundation, not full-fidelity conversion. Paragraph style inheritance, common paragraph spacing/indentation, and supported rich-text marks inherited from paragraph/character styles and direct run properties are imported. Theme fonts/colors, comments/revisions, merged cells, advanced numbering restarts, floating objects, and pixel-perfect Word layout are not fully supported.
 
@@ -78,7 +79,8 @@ Berikut bukti tampilan Playground terbaru. Gambar disimpan di repository agar la
 
 - Semantic text-first PDF export through `exportPdf(document, options?)`.
 - Supports page geometry, paragraphs, headings, explicit page breaks, automatic overflow pagination, and table cells with wrapped text. Tables accept relative `columnWidths` weights on the table node (for example `[3, 1]`) and repeat their first row as a header when continuing to a new page.
-- Supports optional embedded/subsetted TrueType/OpenType fonts via `fontBytes` and optional bold/italic font variants. Marked text supports bold, italic, underline, and strike. Standard Helvetica remains the fallback; PNG/JPEG image embedding and repeating headers/footers/page numbering are also supported.
+- Uses the shared official-document typography baseline (Times-family 12 pt, 1.15 line spacing, A4 page geometry from the model); pass `profile` to `exportPdf` or `exportDocx` to set organization-specific font size, family, spacing, and heading sizes. PDF can embed the organization's actual font files through `fontBytes` and optional bold/italic variants.
+- Marked text supports bold, italic, underline, and strike. PNG/JPEG image embedding, section header/footer variants, and page numbering are also supported.
 
 ### `@convetlib/templates`
 
@@ -387,7 +389,7 @@ Repository ini sedang dikembangkan dan **belum merupakan editor dokumen enterpri
 
 - Belum ada renderer UI lengkap atau adapter React/Web Components.
 - DOCX import/export tersedia dalam cakupan semantik dasar; import belum mempertahankan semua fitur Word dan pagination engine lengkap belum tersedia. PDF table layout supports weighted columns, wrapped cell text, and repeated first-row headers when tables continue to another page; merged-cell layout and splitting a single oversized row are not implemented. Fondasi pagination berbasis tinggi blok dari host serta aturan `keepWithNext` sudah tersedia; pemecahan baris paragraf dan aturan layout kompleks belum tersedia.
-- Seleksi lintas section untuk blok teks tingkat atas pada body didukung dalam batas planner; seleksi lintas header/body/footer dan struktur bersarang lintas section tetap belum didukung.
+- Seleksi teks lintas section tetap terbatas pada body. Di playground, pemindahan blok tingkat atas dengan drag-and-drop mendukung lintas section, header/footer default, serta varian first/even-page; perpindahan struktur bersarang masih terbatas.
 - Clipboard struktural gambar/tabel serta impor HTML campuran paragraf-gambar-tabel tersedia dalam cakupan konservatif; fidelitas penuh HTML/CSS, tabel kompleks, dan impor gambar biner otomatis belum didukung.
 - Pengujian IME sistem operasi nyata dan audit screen reader manual masih perlu dilakukan.
 - Storage, autentikasi, authorization, dan persistence produksi harus disediakan oleh aplikasi host.

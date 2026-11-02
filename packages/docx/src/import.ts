@@ -362,6 +362,15 @@ function numberingFor(paragraph: Element, numbering: Map<string, NumberingInfo>)
   const levelInfo = info?.levels.get(level) ?? (level > 0 ? info?.levels.get(level - 1) : undefined);
   return info && levelInfo ? { numId, level, info, levelInfo } : undefined;
 }
+function isImageShell(node: BlockNode | undefined): boolean {
+  if (!node || node.type !== "paragraph") return false;
+  const content = node.content ?? [];
+  const hasText = content.some(child => child.type === "text" && String((child as { text?: string }).text ?? "").trim().length > 0);
+  const hasInlineAtom = content.some(child => child.type !== "text" && !("id" in child));
+  const hasBlockChild = content.some(child => "id" in child);
+  return !hasText && !hasInlineAtom && !hasBlockChild;
+}
+
 function blockFromElement(element: Element, relationships: Map<string, { target: string; type?: string }>, media: Map<string, { data: string; mime: string }>, factory: ReturnType<typeof createNodeFactory>, styles: Map<string, ParagraphStyle>, characterStyles: Map<string, CharacterStyle>): BlockNode | undefined {
   if (element.localName === "p") return makeParagraph(element, relationships, media, factory, styles, characterStyles);
   if (element.localName === "tbl") {
@@ -545,13 +554,12 @@ export async function importDocx(input: Uint8Array | ArrayBuffer, options: DocxI
     }
     const node = blockFromElement(element, relationships, media, factory, styles, characterStyles);
     if (node) {
-      content.push(node);
-      if (element.localName === "p") {
-        const images = imagesFromParagraph(element, relationships, media, factory);
-        const align = node.attrs?.align;
-        for (const image of images) if (image.type === "image" && (align === "left" || align === "center" || align === "right")) image.attrs = { ...(image.attrs ?? {}), align };
-        content.push(...images);
-      }
+      const images = element.localName === "p" ? imagesFromParagraph(element, relationships, media, factory) : [];
+      // A paragraph that only wraps a drawing is not a real paragraph: keep just the image so round trips do not add empty paragraphs.
+      if (!(images.length > 0 && isImageShell(node))) content.push(node);
+      const align = node.attrs?.align;
+      for (const image of images) if (image.type === "image" && (align === "left" || align === "center" || align === "right")) image.attrs = { ...(image.attrs ?? {}), align };
+      content.push(...images);
     }
   }
   const sectionProperties = first(body, "sectPr");
